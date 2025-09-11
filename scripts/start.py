@@ -48,13 +48,9 @@ def check_environment():
         print("❌ 找不到 React 專案，請先執行 python scripts/setup.py")
         return False
     
-    # 檢查環境變數檔案
+    # 環境變數檔案是可選的
     if not Path(".env").exists():
-        if Path(".env.template").exists():
-            print("⚠️  請複製 .env.template 為 .env 並設定您的 API Key")
-        else:
-            print("❌ 找不到環境變數設定檔")
-        return False
+        print("ℹ️  未找到 .env 檔案，將使用預設設定")
     
     return True
 
@@ -92,11 +88,11 @@ def main():
     # 等待一下讓後端啟動
     time.sleep(3)
     
-    # 啟動前端 (React)
-    frontend_cmd = "npm start"
+    # 啟動前端 (Vite)
+    frontend_cmd = "npm run dev"
     frontend_thread = run_command_async(
         frontend_cmd, 
-        "React Frontend", 
+        "Vite Frontend", 
         cwd="frontend"
     )
     
@@ -106,13 +102,13 @@ def main():
     
     # 自動開啟瀏覽器
     try:
-        webbrowser.open("http://localhost:3000")
-        print("🌐 已開啟瀏覽器: http://localhost:3000")
+        webbrowser.open("http://localhost:5173")
+        print("🌐 已開啟瀏覽器: http://localhost:5173")
     except:
-        print("🌐 請手動開啟瀏覽器訪問: http://localhost:3000")
+        print("🌐 請手動開啟瀏覽器訪問: http://localhost:5173")
     
     print("\n✅ 服務已啟動！")
-    print("- 前端: http://localhost:3000")
+    print("- 前端: http://localhost:5173")
     print("- 後端 API: http://localhost:8000")
     print("\n按 Ctrl+C 停止服務")
     
