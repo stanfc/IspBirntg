@@ -314,7 +314,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, onTextSelect }) => {
             onMouseUp={handleMouseUp}
             style={{
               transform: `scale(${scale})`,
-              transformOrigin: 'top center'
+              transformOrigin: 'top left'
             }}
           >
             <Document
