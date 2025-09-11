@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@types/react-pdf": "^6.2.0",
+    "axios": "^1.11.0",
+    "lucide-react": "^0.543.0",
+    "react-pdf": "^10.1.0"
+  }
+}
