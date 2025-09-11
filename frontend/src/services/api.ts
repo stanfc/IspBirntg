@@ -1,0 +1,223 @@
+// API 基礎配置和服務函數
+
+const API_BASE_URL = 'http://localhost:8000/api';
+
+// PDF 相關的類型定義
+export interface PDFDocument {
+  id: string;
+  filename: string;
+  file_path: string;
+  upload_time: string;
+  page_count: number | null;
+  file_size: number;
+  file_size_display: string;
+  file_exists: boolean;
+  vectorization_status: 'pending' | 'processing' | 'completed' | 'failed';
+  vectorization_completed_at: string | null;
+  conversation_count: number;
+}
+
+export interface UploadResponse {
+  id: string;
+  filename: string;
+  file_size: number;
+  upload_time: string;
+  vectorization_status: string;
+}
+
+// 通用請求函數
+async function apiRequest<T>(
+  endpoint: string, 
+  options: RequestInit = {}
+): Promise<T> {
+  const url = `${API_BASE_URL}${endpoint}`;
+  
+  const defaultOptions: RequestInit = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  };
+
+  const response = await fetch(url, defaultOptions);
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Network error' }));
+    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+  }
+  
+  // 如果是 DELETE 請求且沒有內容，返回空物件
+  const contentType = response.headers.get('content-type');
+  if (response.status === 204 || !contentType?.includes('application/json')) {
+    return {};
+  }
+  
+  return response.json();
+}
+
+// PDF 相關 API 函數
+export const pdfApi = {
+  // 獲取所有 PDF 列表
+  async getAllPDFs(): Promise<PDFDocument[]> {
+    return apiRequest<PDFDocument[]>('/pdfs/');
+  },
+
+  // 上傳 PDF
+  async uploadPDF(file: File, filename?: string, conversationId?: string): Promise<UploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (filename) {
+      formData.append('filename', filename);
+    }
+    if (conversationId) {
+      formData.append('conversation_id', conversationId);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/pdfs/upload/`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Upload failed' }));
+      throw new Error(errorData.message || `Upload failed: ${response.status}`);
+    }
+
+    return response.json();
+  },
+
+  // 獲取特定 PDF 詳情
+  async getPDF(pdfId: string): Promise<PDFDocument> {
+    return apiRequest<PDFDocument>(`/pdfs/${pdfId}/`);
+  },
+
+  // 刪除 PDF
+  async deletePDF(pdfId: string): Promise<void> {
+    return apiRequest(`/pdfs/${pdfId}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  // 獲取 PDF 內容 URL
+  getPDFContentUrl(pdfId: string): string {
+    return `${API_BASE_URL}/pdfs/${pdfId}/content/`;
+  },
+
+  // 獲取 PDF 解析狀態
+  async getPDFStatus(pdfId: string): Promise<{
+    id: string;
+    filename: string;
+    vectorization_status: string;
+    page_count: number | null;
+    vectorization_error: string | null;
+    vectorization_completed_at: string | null;
+  }> {
+    return apiRequest(`/pdfs/${pdfId}/status/`);
+  },
+
+  // 將 PDF 加入對話
+  async addPDFToConversation(conversationId: string, pdfId: string): Promise<{ message: string }> {
+    return apiRequest(`/pdfs/conversations/${conversationId}/add/${pdfId}/`, {
+      method: 'POST',
+    });
+  },
+
+  // 從對話中移除 PDF
+  async removePDFFromConversation(conversationId: string, pdfId: string): Promise<{ message: string }> {
+    return apiRequest(`/pdfs/conversations/${conversationId}/remove/${pdfId}/`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// 對話相關 API（基本結構，待後續完善）
+export interface Conversation {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  system_prompt: string;
+  message_count?: number;
+}
+
+export const conversationApi = {
+  // 獲取所有對話
+  async getAllConversations(): Promise<Conversation[]> {
+    return apiRequest<Conversation[]>('/conversations/');
+  },
+
+  // 創建新對話
+  async createConversation(name: string = '新對話'): Promise<Conversation> {
+    return apiRequest<Conversation>('/conversations/create/', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  // 更新對話名稱
+  async updateConversation(conversationId: string, name: string): Promise<Conversation> {
+    return apiRequest<Conversation>(`/conversations/${conversationId}/update/`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  // 獲取特定對話
+  async getConversation(conversationId: string): Promise<Conversation> {
+    return apiRequest<Conversation>(`/conversations/${conversationId}/`);
+  },
+
+  // 刪除對話
+  async deleteConversation(conversationId: string): Promise<void> {
+    return apiRequest(`/conversations/${conversationId}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  // 發送消息並獲取回答
+  async sendMessage(conversationId: string, message: string): Promise<{
+    user_message: any;
+    ai_response: any;
+    citations: any[];
+  }> {
+    return apiRequest(`/conversations/${conversationId}/chat/`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  },
+
+  // 獲取對話消息
+  async getMessages(conversationId: string): Promise<{
+    conversation_id: string;
+    messages: any[];
+  }> {
+    return apiRequest(`/conversations/${conversationId}/messages/`);
+  },
+
+  // 將 PDF 添加到對話
+  async addPdfToConversation(conversationId: string, pdfId: string): Promise<{ message: string }> {
+    return apiRequest(`/conversations/${conversationId}/add-pdf/`, {
+      method: 'POST',
+      body: JSON.stringify({ pdf_id: pdfId }),
+    });
+  },
+
+  // 從對話中移除 PDF
+  async removePdfFromConversation(conversationId: string, pdfId: string): Promise<{ message: string }> {
+    return apiRequest(`/conversations/${conversationId}/remove-pdf/${pdfId}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  // 獲取對話關聯的 PDF 列表
+  async getConversationPdfs(conversationId: string): Promise<any[]> {
+    return apiRequest(`/conversations/${conversationId}/pdfs/`);
+  },
+};
+
+// 預設導出（可選）
+export default {
+  pdfApi,
+  conversationApi,
+};
