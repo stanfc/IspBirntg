@@ -165,17 +165,37 @@
 /* 引用來源 */
 .citations {
   margin-top: 0.75rem;
-  padding: 0.75rem;
   background-color: #fff3cd;
   border: 1px solid #ffeaa7;
   border-radius: 0.5rem;
+  overflow: hidden;
 }
 
-.citations h4 {
-  margin: 0 0 0.5rem 0;
+.citations-toggle {
+  padding: 0.5rem 0.75rem;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #ffeaa7;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.85rem;
   font-weight: 600;
   color: #856404;
+  transition: background-color 0.2s;
+}
+
+.citations-toggle:hover {
+  background-color: #e9ecef;
+}
+
+.toggle-icon {
+  font-size: 0.7rem;
+  transition: transform 0.2s;
+}
+
+.citations-content {
+  padding: 0.75rem;
 }
 
 .citation {
@@ -206,6 +226,14 @@
   font-weight: 500;
   color: #212529;
   font-size: 0.85rem;
+}
+
+.citation-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .citation-icon {
@@ -330,7 +358,9 @@
 /* 輸入提示 */
 .input-hints {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .hint {
@@ -402,4 +432,111 @@
 
 .chat-resizer:hover {
   background: #3498db;
+}
+
+/* 圖片預覽 */
+.image-preview-container {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.image-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.preview-image {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+.remove-image-btn {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 20px;
+  height: 20px;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-filename {
+  font-size: 0.7rem;
+  color: #666;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-upload-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.image-upload-btn:hover {
+  background-color: #f0f0f0;
+}
+
+/* 消息中的圖片 */
+.message-images {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.message-image {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.message-image-content {
+  max-width: 200px;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.message-image-content:hover {
+  transform: scale(1.05);
+}
+
+.image-caption {
+  font-size: 0.7rem;
+  color: #666;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
 }

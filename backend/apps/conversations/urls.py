@@ -13,4 +13,6 @@ urlpatterns = [
     path('<uuid:conversation_id>/add-pdf/', views.add_pdf_to_conversation, name='add-pdf-to-conversation'),
     path('<uuid:conversation_id>/remove-pdf/<uuid:pdf_id>/', views.remove_pdf_from_conversation, name='remove-pdf-from-conversation'),
     path('<uuid:conversation_id>/pdfs/', views.get_conversation_pdfs, name='get-conversation-pdfs'),
+    path('upload-image/', views.upload_image, name='upload-image'),
+    path('images/<uuid:image_id>/', views.serve_image, name='serve-image'),
 ]

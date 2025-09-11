@@ -148,3 +148,5 @@ def pdf_status(request, pdf_id):
         'vectorization_error': pdf_doc.vectorization_error,
         'vectorization_completed_at': pdf_doc.vectorization_completed_at
     })
+
+

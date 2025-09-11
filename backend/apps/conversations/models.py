@@ -80,6 +80,28 @@ class Citation(models.Model):
         return f"Citation from {self.pdf_document.filename} - Page {self.page_number}"
 
 
+class ImageAttachment(models.Model):
+    """圖片附件模型"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    filename = models.CharField(max_length=255)
+    file_path = models.CharField(max_length=500)
+    file_size = models.BigIntegerField()
+    mime_type = models.CharField(max_length=100)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'image_attachments'
+        ordering = ['-uploaded_at']
+    
+    def __str__(self):
+        return self.filename
+    
+    @property
+    def file_exists(self):
+        import os
+        return os.path.exists(self.file_path)
+
+
 class Message(models.Model):
     ROLE_CHOICES = [('user', 'User'), ('assistant', 'Assistant')]
     
@@ -94,6 +116,11 @@ class Message(models.Model):
     citations = models.ManyToManyField(
         Citation, 
         blank=True, 
+        related_name='messages'
+    )
+    images = models.ManyToManyField(
+        ImageAttachment,
+        blank=True,
         related_name='messages'
     )
     timestamp = models.DateTimeField(auto_now_add=True)

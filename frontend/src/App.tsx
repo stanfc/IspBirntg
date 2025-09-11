@@ -9,11 +9,19 @@ function App() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activePdfUrl, setActivePdfUrl] = useState<string | null>(null);
   const [externalText, setExternalText] = useState<string>('');
+  const [externalImages, setExternalImages] = useState<string[]>([]);
+
+  const handleTextOrImageSelect = (text: string = '', imageIds: string[] = []) => {
+    console.log('handleTextOrImageSelect called with:', { text, imageIds });
+    if (text) setExternalText(text);
+    if (imageIds.length > 0) setExternalImages(imageIds);
+  };
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [chatWidth, setChatWidth] = useState(400);
   const [headerHeight, setHeaderHeight] = useState(60);
   const [footerHeight, setFooterHeight] = useState(40);
   const [showSettings, setShowSettings] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const handleCitationClick = (pageNumber: number) => {
     const pdfContainer = document.querySelector('.pdf-content');
@@ -87,20 +95,32 @@ function App() {
       {/* 主要內容區域 */}
       <main className="app-main">
         {/* 三欄式佈局 */}
-        <div className="sidebar-container" style={{ width: sidebarWidth }}>
-          <Sidebar 
-            activeConversationId={activeConversationId}
-            onConversationSelect={setActiveConversationId}
-            onPdfSelect={setActivePdfUrl}
-          />
+        <div className={`sidebar-container ${sidebarCollapsed ? 'collapsed' : ''}`} style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}>
+          {!sidebarCollapsed && (
+            <Sidebar 
+              activeConversationId={activeConversationId}
+              onConversationSelect={setActiveConversationId}
+              onPdfSelect={setActivePdfUrl}
+            />
+          )}
         </div>
         
-        <div className="resizer" onMouseDown={(e) => handleResize(e, 'sidebar')}></div>
+        <button 
+          className="sidebar-toggle"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          title={sidebarCollapsed ? '展開對話列表' : '收合對話列表'}
+        >
+          {sidebarCollapsed ? '▶' : '◀'}
+        </button>
+        
+        {!sidebarCollapsed && (
+          <div className="resizer" onMouseDown={(e) => handleResize(e, 'sidebar')}></div>
+        )}
         
         <div className="pdf-viewer-container">
           <PDFViewer 
             pdfUrl={activePdfUrl} 
-            onTextSelect={setExternalText}
+            onTextSelect={handleTextOrImageSelect}
           />
         </div>
         
@@ -110,7 +130,9 @@ function App() {
           <ChatPanel 
             conversationId={activeConversationId}
             externalText={externalText}
+            externalImages={externalImages}
             onExternalTextUsed={() => setExternalText('')}
+            onExternalImagesUsed={() => setExternalImages([])}
             onCitationClick={handleCitationClick}
           />
         </div>

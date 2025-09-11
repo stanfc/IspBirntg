@@ -9,6 +9,7 @@ interface Message {
   content: string;
   timestamp: string;
   raw_sources?: Citation[];
+  images?: {id: string, filename: string, mime_type: string}[];
 }
 
 interface Citation {
@@ -20,16 +21,20 @@ interface Citation {
 interface ChatPanelProps {
   conversationId: string | null;
   externalText?: string;
+  externalImages?: string[];
   onExternalTextUsed?: () => void;
+  onExternalImagesUsed?: () => void;
   onCitationClick?: (pageNumber: number) => void;
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onExternalTextUsed, onCitationClick }) => {
+const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, externalImages, onExternalTextUsed, onExternalImagesUsed, onCitationClick }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messagesHeight, setMessagesHeight] = useState<number | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadedImages, setUploadedImages] = useState<{id: string, filename: string, file: File | null}[]>([]);
+  const [expandedCitations, setExpandedCitations] = useState<{[key: string]: boolean}>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -40,6 +45,37 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onE
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // 處理剪貼板貼上圖片
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            try {
+              const result = await conversationApi.uploadImage(file);
+              setUploadedImages(prev => [...prev, {
+                id: result.id,
+                filename: result.filename,
+                file: file
+              }]);
+            } catch (error) {
+              console.error('Paste upload failed:', error);
+              alert('貼上圖片失敗');
+            }
+          }
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, []);
 
 
 
@@ -52,6 +88,25 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onE
       }
     }
   }, [externalText, onExternalTextUsed]);
+
+  // 處理外部圖片輸入
+  useEffect(() => {
+    if (externalImages && externalImages.length > 0) {
+      console.log('Adding external images:', externalImages);
+      // 直接使用圖片 ID，不轉換為 File
+      const images = externalImages.map((imageId) => ({
+        id: imageId,
+        filename: 'screenshot.png',
+        file: null // 不使用 File 物件
+      }));
+      
+      setUploadedImages(prev => [...prev, ...images]);
+      
+      if (onExternalImagesUsed) {
+        onExternalImagesUsed();
+      }
+    }
+  }, [externalImages, onExternalImagesUsed]);
 
   // 處理引用點擊
   const handleCitationClick = (text: string) => {
@@ -99,24 +154,32 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onE
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || isLoading || !conversationId) return;
+    if ((!inputText.trim() && uploadedImages.length === 0) || isLoading || !conversationId) return;
 
     const currentInput = inputText;
+    const currentImages = [...uploadedImages];
     setInputText('');
+    setUploadedImages([]);
     
     // 立即顯示用戶消息
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: currentInput,
-      timestamp: new Date().toISOString()
+      content: currentInput || '[圖片]',
+      timestamp: new Date().toISOString(),
+      images: currentImages.map(img => ({
+        id: img.id,
+        filename: img.filename,
+        mime_type: 'image/png'
+      }))
     };
     
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
 
     try {
-      const response = await conversationApi.sendMessage(conversationId, currentInput);
+      const imageIds = currentImages.map(img => img.id);
+      const response = await conversationApi.sendMessage(conversationId, currentInput, imageIds);
       
       // 調試信息
       console.log('後端返回的引用數量:', response.citations?.length || 0);
@@ -163,6 +226,49 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onE
       e.preventDefault();
       handleSubmit(e as any);
     }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) {
+        alert('只支持圖片檔案');
+        continue;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        alert('圖片大小不能超過 10MB');
+        continue;
+      }
+
+      try {
+        const result = await conversationApi.uploadImage(file);
+        setUploadedImages(prev => [...prev, {
+          id: result.id,
+          filename: result.filename,
+          file: file
+        }]);
+      } catch (error) {
+        console.error('Upload failed:', error);
+        alert('圖片上傳失敗');
+      }
+    }
+
+    // 清空 input
+    e.target.value = '';
+  };
+
+  const removeImage = (imageId: string) => {
+    setUploadedImages(prev => prev.filter(img => img.id !== imageId));
+  };
+
+  const toggleCitations = (messageId: string) => {
+    setExpandedCitations(prev => ({
+      ...prev,
+      [messageId]: !prev[messageId]
+    }));
   };
 
   const formatTimestamp = (timestamp: string) => {
@@ -244,6 +350,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onE
               {message.role === 'user' ? '👤' : '🤖'}
             </div>
             <div className="message-content">
+              {/* 顯示圖片 */}
+              {message.images && message.images.length > 0 && (
+                <div className="message-images">
+                  {message.images.map((image) => (
+                    <div key={image.id} className="message-image">
+                      <img 
+                        src={`http://localhost:8000/api/conversations/images/${image.id}/`}
+                        alt={image.filename}
+                        className="message-image-content"
+                      />
+                      <span className="image-caption">{image.filename}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="message-text">
                 {message.role === 'assistant' ? (
                   <ReactMarkdown>{message.content}</ReactMarkdown>
@@ -253,24 +374,36 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onE
               </div>
               {message.raw_sources && message.raw_sources.length > 0 && (
                 <div className="citations">
-                  <h4>引用來源：</h4>
-                  {message.raw_sources.map((citation, index) => (
-                    <div
-                      key={index}
-                      className="citation"
-                      onClick={() => handleCitationClickFromSource(citation)}
-                    >
-                      <div className="citation-header">
-                        <span className="citation-icon">📄</span>
-                        <span className="citation-source">
-                          {citation.pdf_name} - 第 {citation.page_number} 頁
-                        </span>
-                      </div>
-                      <div className="citation-text">
-                        "{citation.text_content}"
-                      </div>
+                  <div 
+                    className="citations-toggle"
+                    onClick={() => toggleCitations(message.id)}
+                  >
+                    <span className="toggle-icon">
+                      {expandedCitations[message.id] ? '▼' : '▶'}
+                    </span>
+                    <span>引用來源 ({message.raw_sources.length})</span>
+                  </div>
+                  {expandedCitations[message.id] && (
+                    <div className="citations-content">
+                      {message.raw_sources.map((citation, index) => (
+                        <div
+                          key={index}
+                          className="citation"
+                          onClick={() => handleCitationClickFromSource(citation)}
+                        >
+                          <div className="citation-header">
+                            <span className="citation-icon">📄</span>
+                            <span className="citation-source">
+                              {citation.pdf_name} - 第 {citation.page_number} 頁
+                            </span>
+                          </div>
+                          <div className="citation-text">
+                            "{citation.text_content}"
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
               <div className="message-timestamp">
@@ -305,8 +438,42 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onE
 
       {/* 輸入區域 */}
       <div className="chat-input-container">
+        {/* 圖片預覽 */}
+        {uploadedImages.length > 0 && (
+          <div className="image-preview-container">
+            {uploadedImages.map((image) => (
+              <div key={image.id} className="image-preview">
+                <img 
+                  src={image.file ? URL.createObjectURL(image.file) : `http://localhost:8000/api/conversations/images/${image.id}/`} 
+                  alt={image.filename}
+                  className="preview-image"
+                />
+                <button 
+                  className="remove-image-btn"
+                  onClick={() => removeImage(image.id)}
+                  type="button"
+                >
+                  ×
+                </button>
+                <span className="image-filename">{image.filename}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        
         <form onSubmit={handleSubmit} className="chat-input-form">
           <div className="input-wrapper">
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageUpload}
+              style={{ display: 'none' }}
+              id="image-upload"
+            />
+            <label htmlFor="image-upload" className="image-upload-btn" title="上傳圖片">
+              📎
+            </label>
             <textarea
               ref={textareaRef}
               value={inputText}
@@ -326,11 +493,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, onE
             </button>
           </div>
         </form>
-        
-        {/* 輸入提示 */}
-        <div className="input-hints">
-          <span className="hint">💡 您可以問我關於 PDF 內容的任何問題</span>
-        </div>
       </div>
     </div>
   );

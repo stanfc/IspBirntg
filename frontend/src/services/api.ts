@@ -176,14 +176,14 @@ export const conversationApi = {
   },
 
   // 發送消息並獲取回答
-  async sendMessage(conversationId: string, message: string): Promise<{
+  async sendMessage(conversationId: string, message: string, imageIds?: string[]): Promise<{
     user_message: any;
     ai_response: any;
     citations: any[];
   }> {
     return apiRequest(`/conversations/${conversationId}/chat/`, {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, image_ids: imageIds }),
     });
   },
 
@@ -213,6 +213,24 @@ export const conversationApi = {
   // 獲取對話關聯的 PDF 列表
   async getConversationPdfs(conversationId: string): Promise<any[]> {
     return apiRequest(`/conversations/${conversationId}/pdfs/`);
+  },
+
+  // 上傳圖片
+  async uploadImage(imageFile: File): Promise<{id: string, filename: string, mime_type: string, file_size: number}> {
+    const formData = new FormData();
+    formData.append('image', imageFile);
+
+    const response = await fetch(`${API_BASE_URL}/conversations/upload-image/`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Upload failed' }));
+      throw new Error(errorData.error || `Upload failed: ${response.status}`);
+    }
+
+    return response.json();
   },
 };
 

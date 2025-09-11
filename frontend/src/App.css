@@ -72,6 +72,13 @@ html, body {
   min-width: 200px;
   background-color: #f8f9fa;
   overflow: auto;
+  transition: width 0.3s ease;
+}
+
+.sidebar-container.collapsed {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .pdf-viewer-container {
@@ -99,6 +106,32 @@ html, body {
 
 .resizer:hover {
   background: #3498db;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 48px;
+  background: #3498db;
+  border: none;
+  color: white;
+  cursor: pointer;
+  border-radius: 0 8px 8px 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 1000;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-toggle:hover {
+  background: #2980b9;
+  width: 28px;
 }
 
 /* 調整分割線樣式 */

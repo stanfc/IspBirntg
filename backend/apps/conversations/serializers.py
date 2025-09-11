@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Conversation, Message
+from .models import Conversation, Message, ImageAttachment
 
 
 class ConversationSerializer(serializers.ModelSerializer):
@@ -11,8 +11,15 @@ class ConversationSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+class ImageAttachmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ImageAttachment
+        fields = ['id', 'filename', 'mime_type', 'file_size']
+
 class MessageSerializer(serializers.ModelSerializer):
+    images = ImageAttachmentSerializer(many=True, read_only=True)
+    
     class Meta:
         model = Message
-        fields = ['id', 'role', 'content', 'timestamp', 'raw_sources']
+        fields = ['id', 'role', 'content', 'timestamp', 'raw_sources', 'images']
         read_only_fields = ['id', 'timestamp']

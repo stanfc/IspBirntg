@@ -58,9 +58,6 @@ class PDFProcessingService:
                 # 更新頁面數量
                 pdf_doc.page_count = result['page_count']
                 
-                # 提取圖片描述
-                image_descriptions = pdf_doc.extract_images_with_descriptions()
-                
                 # 進行向量化
                 rag_service = RAGService()
                 
@@ -68,11 +65,6 @@ class PDFProcessingService:
                 all_documents = []
                 for page_data in result['pages']:
                     page_text = page_data['text']
-                    
-                    # 添加該頁的圖片描述
-                    page_images = [img for img in image_descriptions if img['page_number'] == page_data['page_number']]
-                    for img in page_images:
-                        page_text += f"\n\n[圖片 {img['image_index']+1}]: {img['description']}"
                     
                     if page_text.strip():  # 只處理非空頁面
                         metadata = {

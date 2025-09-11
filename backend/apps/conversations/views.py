@@ -1,9 +1,10 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
 
-from .models import Conversation, Message
+from .models import Conversation, Message, ImageAttachment
 from .serializers import ConversationSerializer, MessageSerializer
 from apps.rag.services import RAGService
 from apps.pdfs.models import PDFDocument
@@ -26,17 +27,23 @@ def chat_with_pdfs(request, conversation_id):
     """與 PDF 進行問答對話"""
     conversation = get_object_or_404(Conversation, id=conversation_id)
     user_message = request.data.get('message', '').strip()
+    image_ids = request.data.get('image_ids', [])
     
-    if not user_message:
-        return Response({'error': '消息不能為空'}, status=status.HTTP_400_BAD_REQUEST)
+    if not user_message and not image_ids:
+        return Response({'error': '消息和圖片不能同時為空'}, status=status.HTTP_400_BAD_REQUEST)
     
     try:
         # 保存用戶消息
         user_msg = Message.objects.create(
             conversation=conversation,
             role='user',
-            content=user_message
+            content=user_message or '[圖片]'
         )
+        
+        # 關聯圖片
+        if image_ids:
+            images = ImageAttachment.objects.filter(id__in=image_ids)
+            user_msg.images.set(images)
         
         # 獲取對話中的所有 PDF
         pdfs = conversation.pdfs.filter(vectorization_status='completed')
@@ -88,9 +95,31 @@ def chat_with_pdfs(request, conversation_id):
                         model = genai.GenerativeModel(config.gemini_model)
                         
                         context = "\n\n".join(context_texts[:3])
-                        prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n\n用戶問題：{user_message}\n\n請根據上述文檔內容回答問題。"
                         
-                        response = model.generate_content(prompt)
+                        # 準備內容列表
+                        content_parts = []
+                        
+                        # 添加文本提示
+                        if user_message:
+                            prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n\n用戶問題：{user_message}\n\n請根據上述文檔內容回答問題。"
+                        else:
+                            prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n\n請分析用戶提供的圖片，並結合文檔內容進行說明。"
+                        
+                        content_parts.append(prompt)
+                        
+                        # 添加圖片
+                        if image_ids:
+                            images = ImageAttachment.objects.filter(id__in=image_ids)
+                            for image in images:
+                                if image.file_exists:
+                                    with open(image.file_path, 'rb') as f:
+                                        image_data = f.read()
+                                    content_parts.append({
+                                        "mime_type": image.mime_type,
+                                        "data": image_data
+                                    })
+                        
+                        response = model.generate_content(content_parts)
                         answer = response.text
                     else:
                         answer = "請在設定中配置 Gemini API Key。"
@@ -130,8 +159,29 @@ def chat_with_pdfs(request, conversation_id):
                         genai.configure(api_key=config.gemini_api_key)
                         model = genai.GenerativeModel(config.gemini_model)
                         
-                        prompt = f"{config.system_prompt}\n\n文檔內容：\n{context}\n\n用戶問題：{user_message}"
-                        response = model.generate_content(prompt)
+                        # 準備內容列表
+                        content_parts = []
+                        
+                        if user_message:
+                            prompt = f"{config.system_prompt}\n\n文檔內容：\n{context}\n\n用戶問題：{user_message}"
+                        else:
+                            prompt = f"{config.system_prompt}\n\n文檔內容：\n{context}\n\n請分析用戶提供的圖片，並結合文檔內容進行說明。"
+                        
+                        content_parts.append(prompt)
+                        
+                        # 添加圖片
+                        if image_ids:
+                            images = ImageAttachment.objects.filter(id__in=image_ids)
+                            for image in images:
+                                if image.file_exists:
+                                    with open(image.file_path, 'rb') as f:
+                                        image_data = f.read()
+                                    content_parts.append({
+                                        "mime_type": image.mime_type,
+                                        "data": image_data
+                                    })
+                        
+                        response = model.generate_content(content_parts)
                         answer = response.text
                     else:
                         answer = "請在設定中配置 Gemini API Key。"
@@ -227,3 +277,74 @@ def get_conversation_pdfs(request, conversation_id):
         })
     
     return Response(pdf_data)
+
+@api_view(['POST'])
+def upload_image(request):
+    """上傳圖片"""
+    if 'image' not in request.FILES:
+        return Response({'error': '沒有提供圖片檔案'}, status=400)
+    
+    image_file = request.FILES['image']
+    
+    # 驗證檔案類型
+    if not image_file.content_type.startswith('image/'):
+        return Response({'error': '只支持圖片檔案'}, status=400)
+    
+    # 驗證檔案大小 (10MB)
+    if image_file.size > 10 * 1024 * 1024:
+        return Response({'error': '圖片大小不能超過 10MB'}, status=400)
+    
+    import uuid
+    import os
+    from django.conf import settings
+    
+    # 生成唯一檔名
+    file_extension = os.path.splitext(image_file.name)[1]
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    
+    # 確保目錄存在
+    image_dir = settings.BASE_DIR / 'data' / 'images'
+    os.makedirs(image_dir, exist_ok=True)
+    
+    file_path = image_dir / unique_filename
+    
+    # 儲存檔案
+    with open(file_path, 'wb+') as destination:
+        for chunk in image_file.chunks():
+            destination.write(chunk)
+    
+    # 建立資料庫記錄
+    image_attachment = ImageAttachment.objects.create(
+        filename=image_file.name,
+        file_path=str(file_path),
+        file_size=image_file.size,
+        mime_type=image_file.content_type
+    )
+    
+    return Response({
+        'id': str(image_attachment.id),
+        'filename': image_attachment.filename,
+        'mime_type': image_attachment.mime_type,
+        'file_size': image_attachment.file_size
+    })
+
+@api_view(['GET'])
+def serve_image(request, image_id):
+    """提供圖片檔案"""
+    image = get_object_or_404(ImageAttachment, id=image_id)
+    
+    if not image.file_exists:
+        from django.http import Http404
+        raise Http404("圖片檔案不存在")
+    
+    from django.http import FileResponse
+    try:
+        response = FileResponse(
+            open(image.file_path, 'rb'),
+            content_type=image.mime_type
+        )
+        response['Content-Disposition'] = f'inline; filename="{image.filename}"'
+        return response
+    except FileNotFoundError:
+        from django.http import Http404
+        raise Http404("圖片檔案不存在")

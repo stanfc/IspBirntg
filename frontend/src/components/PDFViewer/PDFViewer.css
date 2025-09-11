@@ -291,11 +291,105 @@
   align-items: center;
   width: 100%;
   height: 100%;
+  position: relative;
+  cursor: crosshair;
 }
 
 .react-pdf__Page {
-  margin-bottom: 0 !important;
+  cursor: crosshair;
+}
+
+.react-pdf__Page__textContent span {
+  cursor: text !important;
+}
+
+.selection-box {
+  position: absolute;
+  border: 2px dashed #3498db;
+  background-color: rgba(52, 152, 219, 0.1);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.screenshot-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.screenshot-preview {
+  background: white;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.screenshot-image {
+  max-width: 100%;
+  max-height: 70vh;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.screenshot-info {
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  text-align: center;
+  color: #495057;
+  font-size: 0.9rem;
+}
+
+.screenshot-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.screenshot-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.screenshot-btn.confirm {
+  background-color: #28a745;
+  color: white;
+}
+
+.screenshot-btn.confirm:hover {
+  background-color: #218838;
+}
+
+.screenshot-btn.cancel {
+  background-color: #6c757d;
+  color: white;
+}
+
+.screenshot-btn.cancel:hover {
+  background-color: #5a6268;
+}
+
+.react-pdf__Page {
+  margin-bottom: 1px !important;
   border-bottom: 1px solid #ddd;
+  display: block !important;
 }
 
 /* 確保文字可選取 */
@@ -305,7 +399,6 @@
 
 .react-pdf__Page__textContent span {
   user-select: text !important;
-  cursor: text;
   transition: background-color 0.2s;
 }
 
