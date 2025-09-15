@@ -408,6 +408,32 @@
   background-color: rgba(52, 152, 219, 0.1) !important;
 }
 
+/* PDF風格的文字選取效果 - 像是荧光筆標記在PDF上 */
+.react-pdf__Page__textContent ::selection {
+  background: rgba(255, 255, 0, 0.3) !important;
+  color: inherit !important;
+  text-shadow: none !important;
+}
+
+.react-pdf__Page__textContent span::selection {
+  background: rgba(255, 255, 0, 0.3) !important;
+  color: inherit !important;
+  text-shadow: none !important;
+}
+
+/* 針對Firefox的選取樣式 */
+.react-pdf__Page__textContent ::-moz-selection {
+  background: rgba(255, 255, 0, 0.3) !important;
+  color: inherit !important;
+  text-shadow: none !important;
+}
+
+.react-pdf__Page__textContent span::-moz-selection {
+  background: rgba(255, 255, 0, 0.3) !important;
+  color: inherit !important;
+  text-shadow: none !important;
+}
+
 .context-menu {
   background: white;
   border: 1px solid #ccc;

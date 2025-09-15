@@ -86,7 +86,7 @@ function App() {
     <div className="app">
       {/* 頂部導航列 */}
       <header className="app-header">
-        <h1>IspBirntg - Offline ChatPDF</h1>
+        <h1>IspBirntg - Offline LLM based PDF reader</h1>
         <div className="header-controls">
           <button className="settings-btn" onClick={() => setShowSettings(true)}>設定</button>
         </div>
