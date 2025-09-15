@@ -338,18 +338,13 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, onTextSelect }) => {
             
             {/* 選取框 */}
             {isSelecting && selectionStart && selectionEnd && (
-              <div 
+              <div
                 className="selection-box"
                 style={{
-                  position: 'absolute',
                   left: Math.min(selectionStart.x, selectionEnd.x),
                   top: Math.min(selectionStart.y, selectionEnd.y),
                   width: Math.abs(selectionEnd.x - selectionStart.x),
-                  height: Math.abs(selectionEnd.y - selectionStart.y),
-                  border: '2px dashed #3498db',
-                  backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                  pointerEvents: 'none',
-                  zIndex: 1000
+                  height: Math.abs(selectionEnd.y - selectionStart.y)
                 }}
               />
             )}
