@@ -69,6 +69,8 @@
   border-radius: 4px;
   text-align: center;
   font-size: 0.9rem;
+  color: #212529;
+  background-color: white;
 }
 
 /* 文檔標題 */
@@ -451,6 +453,7 @@
   text-align: left;
   cursor: pointer;
   font-size: 14px;
+  color: #212529;
   white-space: nowrap;
 }
 
