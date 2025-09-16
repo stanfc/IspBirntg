@@ -11,6 +11,30 @@ import time
 import threading
 import signal
 from pathlib import Path
+
+# 檢查是否在 uv 環境中執行，如果不是則重新用 uv 執行
+if os.environ.get('RUNNING_IN_UV') != 'true':
+    script_path = Path(__file__).resolve()
+    backend_dir = script_path.parent / "backend"
+
+    # 保存當前目錄
+    original_dir = os.getcwd()
+
+    # 使用 uv 重新執行此腳本
+    print("🔄 使用 uv 環境重新啟動...")
+    os.chdir(backend_dir)
+
+    # 設定環境變數避免遞歸
+    env = os.environ.copy()
+    env['RUNNING_IN_UV'] = 'true'
+
+    # 使用絕對路徑執行原始腳本
+    result = subprocess.call(["uv", "run", "python", str(script_path)] + sys.argv[1:], env=env)
+
+    # 恢復原始目錄
+    os.chdir(original_dir)
+    sys.exit(result)
+
 from dotenv import load_dotenv
 
 class IspBirntgStarter:
@@ -146,13 +170,18 @@ class IspBirntgStarter:
         os.chdir(self.backend_dir)
         
         try:
+            # 設定環境變數，讓 manage.py 讀取 BACKEND_PORT
+            env = os.environ.copy()
+            env['BACKEND_PORT'] = self.backend_port
+
             process = subprocess.Popen(
-                ["uv", "run", "python", "manage.py", "runserver", self.backend_port],
+                ["uv", "run", "python", "manage.py", "runserver"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
+                env=env
             )
             self.processes.append(("後端", process))
             
@@ -179,7 +208,8 @@ class IspBirntgStarter:
         try:
             # 設定環境變數傳遞給前端
             env = os.environ.copy()
-            env['PORT'] = self.frontend_port
+            env['FRONTEND_PORT'] = self.frontend_port
+            env['BACKEND_PORT'] = self.backend_port
 
             process = subprocess.Popen(
                 ["npm", "run", "dev", "--", "--port", self.frontend_port],
