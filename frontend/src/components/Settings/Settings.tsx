@@ -45,7 +45,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const loadConfig = async () => {
     try {
       console.log('正在載入配置...');
-      const response = await fetch('http://localhost:8000/api/system_config/config/');
+      const response = await fetch('http://localhost:8080/api/system_config/config/');
       console.log('API 回應狀態:', response.status);
       if (response.ok) {
         const data = await response.json();
@@ -62,7 +62,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const saveConfig = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/system_config/config/', {
+      const response = await fetch('http://localhost:8080/api/system_config/config/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)

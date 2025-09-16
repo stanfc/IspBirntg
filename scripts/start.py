@@ -109,7 +109,7 @@ def main():
     
     print("\n✅ 服務已啟動！")
     print("- 前端: http://localhost:5173")
-    print("- 後端 API: http://localhost:8000")
+    print("- 後端 API: http://localhost:8080")
     print("\n按 Ctrl+C 停止服務")
     
     try:

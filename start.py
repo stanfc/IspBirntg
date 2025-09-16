@@ -11,6 +11,7 @@ import time
 import threading
 import signal
 from pathlib import Path
+from dotenv import load_dotenv
 
 class IspBirntgStarter:
     def __init__(self):
@@ -18,6 +19,13 @@ class IspBirntgStarter:
         self.backend_dir = self.project_root / "backend"
         self.frontend_dir = self.project_root / "frontend"
         self.processes = []
+
+        # 載入 .env 檔案
+        load_dotenv(self.project_root / '.env')
+
+        # 從環境變數讀取 port，如果沒有設定則使用預設值
+        self.backend_port = os.getenv('BACKEND_PORT', '8080')
+        self.frontend_port = os.getenv('FRONTEND_PORT', '5173')
         
     def check_requirements(self):
         """檢查系統需求"""
@@ -139,7 +147,7 @@ class IspBirntgStarter:
         
         try:
             process = subprocess.Popen(
-                ["uv", "run", "python", "manage.py", "runserver", "8000"],
+                ["uv", "run", "python", "manage.py", "runserver", self.backend_port],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -154,7 +162,7 @@ class IspBirntgStarter:
                     if line:
                         print(f"[後端] {line.rstrip()}")
                         if "Starting development server" in line:
-                            print("✅ 後端服務啟動成功 - http://localhost:8000")
+                            print(f"✅ 後端服務啟動成功 - http://localhost:{self.backend_port}")
                             
             threading.Thread(target=monitor_backend, daemon=True).start()
             return True
@@ -169,13 +177,18 @@ class IspBirntgStarter:
         os.chdir(self.frontend_dir)
         
         try:
+            # 設定環境變數傳遞給前端
+            env = os.environ.copy()
+            env['PORT'] = self.frontend_port
+
             process = subprocess.Popen(
-                ["npm", "run", "dev"],
+                ["npm", "run", "dev", "--", "--port", self.frontend_port],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
+                env=env
             )
             self.processes.append(("前端", process))
             
@@ -185,7 +198,7 @@ class IspBirntgStarter:
                     if line:
                         print(f"[前端] {line.rstrip()}")
                         if "Local:" in line and "localhost" in line:
-                            print("✅ 前端服務啟動成功 - http://localhost:5173")
+                            print(f"✅ 前端服務啟動成功 - http://localhost:{self.frontend_port}")
                             
             threading.Thread(target=monitor_frontend, daemon=True).start()
             return True
@@ -242,9 +255,9 @@ class IspBirntgStarter:
                 
             print("\n" + "=" * 50)
             print("🎉 IspBirntg 啟動成功！")
-            print("📖 前端界面: http://localhost:5173")
-            print("🔧 後端 API: http://localhost:8000")
-            print("⚙️ Django Admin: http://localhost:8000/admin")
+            print(f"📖 前端界面: http://localhost:{self.frontend_port}")
+            print(f"🔧 後端 API: http://localhost:{self.backend_port}")
+            print(f"⚙️ Django Admin: http://localhost:{self.backend_port}/admin")
             print("\n按 Ctrl+C 停止服務")
             print("=" * 50)
             

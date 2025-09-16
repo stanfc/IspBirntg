@@ -356,7 +356,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
                   {message.images.map((image) => (
                     <div key={image.id} className="message-image">
                       <img 
-                        src={`http://localhost:8000/api/conversations/images/${image.id}/`}
+                        src={`http://localhost:8080/api/conversations/images/${image.id}/`}
                         alt={image.filename}
                         className="message-image-content"
                       />
@@ -444,7 +444,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
             {uploadedImages.map((image) => (
               <div key={image.id} className="image-preview">
                 <img 
-                  src={image.file ? URL.createObjectURL(image.file) : `http://localhost:8000/api/conversations/images/${image.id}/`} 
+                  src={image.file ? URL.createObjectURL(image.file) : `http://localhost:8080/api/conversations/images/${image.id}/`} 
                   alt={image.filename}
                   className="preview-image"
                 />

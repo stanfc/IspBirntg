@@ -1,6 +1,6 @@
 // API 基礎配置和服務函數
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '8080'}/api`;
 
 // PDF 相關的類型定義
 export interface PDFDocument {

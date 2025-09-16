@@ -40,7 +40,7 @@ uv run python manage.py migrate
 **啟動後端**
 ```bash
 cd backend 
-uv run python manage.py runserver 8000
+uv run python manage.py runserver
 ```
 
 **啟動前端**
@@ -57,8 +57,8 @@ python scripts/start.py
 
 ### 訪問應用
 - **前端界面**: http://localhost:5173
-- **後端 API**: http://localhost:8000
-- **Django Admin**: http://localhost:8000/admin
+- **後端 API**: http://localhost:8080
+- **Django Admin**: http://localhost:8080/admin
 
 ## 項目結構
 
