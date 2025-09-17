@@ -341,10 +341,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, onTextSelect }) => {
               <div
                 className="selection-box"
                 style={{
-                  left: Math.min(selectionStart.x, selectionEnd.x),
-                  top: Math.min(selectionStart.y, selectionEnd.y),
-                  width: Math.abs(selectionEnd.x - selectionStart.x),
-                  height: Math.abs(selectionEnd.y - selectionStart.y)
+                  left: Math.min(selectionStart.x, selectionEnd.x) / scale,
+                  top: Math.min(selectionStart.y, selectionEnd.y) / scale,
+                  width: Math.abs(selectionEnd.x - selectionStart.x) / scale,
+                  height: Math.abs(selectionEnd.y - selectionStart.y) / scale
                 }}
               />
             )}

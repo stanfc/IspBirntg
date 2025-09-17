@@ -93,7 +93,7 @@ class IspBirntgStarter:
             
         # 檢查 npm
         try:
-            result = subprocess.run(["npm", "--version"], capture_output=True, text=True)
+            result = subprocess.run(["npm", "--version"], capture_output=True, text=True, shell=True)
             if result.returncode == 0:
                 npm_version = result.stdout.strip()
                 print(f"✅ npm {npm_version}")
@@ -154,7 +154,7 @@ class IspBirntgStarter:
         # 檢查是否需要安裝依賴
         if not (self.frontend_dir / "node_modules").exists():
             print("📦 安裝前端依賴...")
-            result = subprocess.run(["npm", "install"], capture_output=True, text=True)
+            result = subprocess.run(["npm", "install"], capture_output=True, text=True, shell=True)
             if result.returncode != 0:
                 print(f"❌ 前端依賴安裝失敗: {result.stderr}")
                 return False
@@ -218,17 +218,27 @@ class IspBirntgStarter:
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
-                env=env
+                env=env,
+                shell=True,
+                encoding='utf-8',
+                errors='ignore'
             )
             self.processes.append(("前端", process))
             
             # 監控前端啟動
             def monitor_frontend():
-                for line in iter(process.stdout.readline, ''):
-                    if line:
-                        print(f"[前端] {line.rstrip()}")
-                        if "Local:" in line and "localhost" in line:
-                            print(f"✅ 前端服務啟動成功 - http://localhost:{self.frontend_port}")
+                try:
+                    for line in iter(process.stdout.readline, ''):
+                        if line:
+                            try:
+                                print(f"[前端] {line.rstrip()}")
+                                if "Local:" in line and "localhost" in line:
+                                    print(f"✅ 前端服務啟動成功 - http://localhost:{self.frontend_port}")
+                            except UnicodeDecodeError:
+                                # 忽略編碼錯誤的行
+                                continue
+                except Exception as e:
+                    print(f"[前端監控] 監控過程中發生錯誤: {e}")
                             
             threading.Thread(target=monitor_frontend, daemon=True).start()
             return True
