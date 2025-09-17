@@ -4,8 +4,8 @@ from rest_framework.decorators import api_view
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
 
-from .models import Conversation, Message, ImageAttachment
-from .serializers import ConversationSerializer, MessageSerializer
+from .models import Folder, Conversation, Message, ImageAttachment
+from .serializers import FolderSerializer, ConversationSerializer, MessageSerializer
 from apps.rag.services import RAGService
 from apps.pdfs.models import PDFDocument
 
@@ -228,7 +228,19 @@ def conversation_messages(request, conversation_id):
 def create_conversation(request):
     """創建新對話"""
     name = request.data.get('name', '新對話')
-    conversation = Conversation.objects.create(title=name)
+    folder_id = request.data.get('folder_id')
+
+    folder = None
+    if folder_id:
+        folder = get_object_or_404(Folder, id=folder_id)
+    else:
+        # 默認分配到"未分類"文件夾
+        folder, created = Folder.objects.get_or_create(
+            name='未分類',
+            defaults={'name': '未分類'}
+        )
+
+    conversation = Conversation.objects.create(title=name, folder=folder)
     return Response(ConversationSerializer(conversation).data)
 
 @api_view(['PUT'])
@@ -348,3 +360,65 @@ def serve_image(request, image_id):
     except FileNotFoundError:
         from django.http import Http404
         raise Http404("圖片檔案不存在")
+
+
+# Folder相關的視圖
+
+class FolderListCreateView(generics.ListCreateAPIView):
+    """文件夾列表和創建"""
+    queryset = Folder.objects.all()
+    serializer_class = FolderSerializer
+
+
+class FolderDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """文件夾詳情、更新和刪除"""
+    queryset = Folder.objects.all()
+    serializer_class = FolderSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        """刪除文件夾時，將其中的對話移動到"未分類"文件夾"""
+        folder = self.get_object()
+
+        # 確保"未分類"文件夾存在
+        uncategorized_folder, created = Folder.objects.get_or_create(
+            name='未分類',
+            defaults={'name': '未分類'}
+        )
+
+        # 將此文件夾中的所有對話移動到"未分類"文件夾
+        folder.conversations.update(folder=uncategorized_folder)
+
+        # 刪除文件夾
+        return super().destroy(request, *args, **kwargs)
+
+
+@api_view(['GET'])
+def folder_conversations(request, folder_id):
+    """獲取特定文件夾中的所有對話"""
+    folder = get_object_or_404(Folder, id=folder_id)
+    conversations = folder.conversations.all().order_by('-updated_at')
+
+    return Response({
+        'folder_id': str(folder.id),
+        'folder_name': folder.name,
+        'conversations': ConversationSerializer(conversations, many=True).data
+    })
+
+
+@api_view(['POST'])
+def move_conversation_to_folder(request, conversation_id):
+    """將對話移動到指定文件夾"""
+    conversation = get_object_or_404(Conversation, id=conversation_id)
+    folder_id = request.data.get('folder_id')
+
+    if not folder_id:
+        return Response({'error': '需要提供文件夾ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+    folder = get_object_or_404(Folder, id=folder_id)
+    conversation.folder = folder
+    conversation.save()
+
+    return Response({
+        'message': f'對話已移動到文件夾 "{folder.name}"',
+        'conversation': ConversationSerializer(conversation).data
+    })

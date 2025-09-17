@@ -131,10 +131,21 @@ export const pdfApi = {
   },
 };
 
-// 對話相關 API（基本結構，待後續完善）
+// Folder 相關的類型定義
+export interface Folder {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  conversation_count: number;
+}
+
+// 對話相關的類型定義
 export interface Conversation {
   id: string;
   title: string;
+  folder?: string; // folder id
+  folder_name?: string;
   created_at: string;
   updated_at: string;
   system_prompt: string;
@@ -148,10 +159,10 @@ export const conversationApi = {
   },
 
   // 創建新對話
-  async createConversation(name: string = '新對話'): Promise<Conversation> {
+  async createConversation(name: string = '新對話', folderId?: string): Promise<Conversation> {
     return apiRequest<Conversation>('/conversations/create/', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, folder_id: folderId }),
     });
   },
 
@@ -232,10 +243,62 @@ export const conversationApi = {
 
     return response.json();
   },
+
+  // 將對話移動到指定文件夾
+  async moveConversationToFolder(conversationId: string, folderId: string): Promise<{
+    message: string;
+    conversation: Conversation;
+  }> {
+    return apiRequest(`/conversations/${conversationId}/move-to-folder/`, {
+      method: 'POST',
+      body: JSON.stringify({ folder_id: folderId }),
+    });
+  },
+};
+
+// Folder 相關 API
+export const folderApi = {
+  // 獲取所有文件夾
+  async getAllFolders(): Promise<Folder[]> {
+    return apiRequest<Folder[]>('/conversations/folders/');
+  },
+
+  // 創建新文件夾
+  async createFolder(name: string): Promise<Folder> {
+    return apiRequest<Folder>('/conversations/folders/', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  // 更新文件夾名稱
+  async updateFolder(folderId: string, name: string): Promise<Folder> {
+    return apiRequest<Folder>(`/conversations/folders/${folderId}/`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  // 刪除文件夾
+  async deleteFolder(folderId: string): Promise<void> {
+    return apiRequest(`/conversations/folders/${folderId}/`, {
+      method: 'DELETE',
+    });
+  },
+
+  // 獲取特定文件夾中的對話
+  async getFolderConversations(folderId: string): Promise<{
+    folder_id: string;
+    folder_name: string;
+    conversations: Conversation[];
+  }> {
+    return apiRequest(`/conversations/folders/${folderId}/conversations/`);
+  },
 };
 
 // 預設導出（可選）
 export default {
   pdfApi,
   conversationApi,
+  folderApi,
 };

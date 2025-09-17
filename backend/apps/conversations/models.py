@@ -2,9 +2,35 @@ import uuid
 from django.db import models
 
 
+class Folder(models.Model):
+    """文件夹模型，用于组织对话"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    name = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'folders'
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    def conversation_count(self):
+        return self.conversations.count()
+
+
 class Conversation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     title = models.CharField(max_length=200)
+    folder = models.ForeignKey(
+        Folder,
+        on_delete=models.CASCADE,
+        related_name='conversations',
+        null=True,
+        blank=True,
+        help_text="對話所屬的文件夾"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     system_prompt = models.TextField(

@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { pdfApi, conversationApi } from '../../services/api';
-import type { PDFDocument } from '../../services/api';
+import { pdfApi, conversationApi, folderApi } from '../../services/api';
+import type { PDFDocument, Folder } from '../../services/api';
 import PDFUpload from '../PDFUpload/PDFUpload';
 import './Sidebar.css';
 
 interface Conversation {
   id: string;
   title: string;
-  created_at: string;
-  message_count: number;
+  folder?: string;
+  folder_name?: string;
 }
 
 interface SidebarProps {
@@ -34,6 +34,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
   const [showPdfSelector, setShowPdfSelector] = useState(false);
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+
+  // Folder 相關狀態
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [showFolderForm, setShowFolderForm] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState('');
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
+  const [conversationToMove, setConversationToMove] = useState<string | null>(null);
+
   const [notification, setNotification] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -41,9 +52,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
 
   // 載入數據
   useEffect(() => {
+    loadFolders();
     loadConversations();
     loadAllPdfs();
   }, []);
+
+  // 當選中文件夾改變時，重新載入對話列表
+  useEffect(() => {
+    if (folders.length > 0) {
+      loadConversations();
+    }
+  }, [selectedFolderId, folders]);
 
   // 當選中對話改變時，載入該對話的 PDF
   useEffect(() => {
@@ -51,15 +70,43 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
       loadConversationPdfs(activeConversationId);
     } else {
       setConversationPdfs([]);
+      // 如果沒有選中的對話，清空PDF顯示
+      onPdfSelect(null);
     }
   }, [activeConversationId]);
+
+  const loadFolders = async () => {
+    try {
+      const folderList = await folderApi.getAllFolders();
+      setFolders(folderList);
+
+      // 默認選中"未分類"文件夾，如果存在的話
+      const uncategorizedFolder = folderList.find(f => f.name === '未分類');
+      if (uncategorizedFolder && !selectedFolderId) {
+        setSelectedFolderId(uncategorizedFolder.id);
+      }
+    } catch (error) {
+      console.error('Failed to load folders:', error);
+      setFolders([]);
+    }
+  };
 
   const loadConversations = async () => {
     try {
       setIsLoadingConversations(true);
-      const convList = await conversationApi.getAllConversations();
+      let convList: Conversation[];
+
+      if (selectedFolderId) {
+        // 載入特定文件夾中的對話
+        const response = await folderApi.getFolderConversations(selectedFolderId);
+        convList = response.conversations;
+      } else {
+        // 載入所有對話
+        convList = await conversationApi.getAllConversations();
+      }
+
       setConversations(convList);
-      
+
       // 如果有對話且沒有選中的，選擇第一個
       if (convList.length > 0 && !activeConversationId) {
         onConversationSelect(convList[0].id);
@@ -87,9 +134,21 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
       setIsLoadingPdfs(true);
       const pdfs = await conversationApi.getConversationPdfs(conversationId);
       setConversationPdfs(pdfs);
+
+      // 自動打開第一個PDF，如果有的話
+      if (pdfs.length > 0) {
+        const firstPdf = pdfs[0];
+        const pdfUrl = pdfApi.getPDFContentUrl(firstPdf.id);
+        onPdfSelect(pdfUrl);
+      } else {
+        // 如果沒有PDF，清空PDF顯示
+        onPdfSelect(null);
+      }
     } catch (error) {
       console.error('Failed to load conversation PDFs:', error);
       setConversationPdfs([]);
+      // 載入失敗時也清空PDF顯示
+      onPdfSelect(null);
     } finally {
       setIsLoadingPdfs(false);
     }
@@ -102,9 +161,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
 
   const createNewConversation = async () => {
     try {
-      const newConv = await conversationApi.createConversation('新對話');
+      const newConv = await conversationApi.createConversation('新對話', selectedFolderId || undefined);
       setConversations(prev => [newConv, ...prev]);
       onConversationSelect(newConv.id);
+
+      // 重新載入文件夾列表以更新統計數字
+      await loadFolders();
+
       showNotification('success', '已創建新對話');
     } catch (error) {
       console.error('Failed to create conversation:', error);
@@ -173,21 +236,35 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
 
   const deleteConversation = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (conversations.length > 1) {
-      try {
-        await conversationApi.deleteConversation(id);
-        setConversations(prev => prev.filter(conv => conv.id !== id));
-        if (activeConversationId === id) {
-          const remaining = conversations.filter(conv => conv.id !== id);
-          if (remaining.length > 0) {
-            onConversationSelect(remaining[0].id);
-          }
+
+    if (!confirm('確定要刪除這個對話嗎？此操作無法撤銷。')) {
+      return;
+    }
+
+    try {
+      await conversationApi.deleteConversation(id);
+
+      // 從本地狀態中移除對話
+      setConversations(prev => prev.filter(conv => conv.id !== id));
+
+      // 如果刪除的是當前選中的對話，需要選擇新的對話
+      if (activeConversationId === id) {
+        const remaining = conversations.filter(conv => conv.id !== id);
+        if (remaining.length > 0) {
+          onConversationSelect(remaining[0].id);
+        } else {
+          // 如果沒有剩餘對話，清空選擇
+          onConversationSelect('');
         }
-        showNotification('success', '已刪除對話');
-      } catch (error) {
-        console.error('Failed to delete conversation:', error);
-        showNotification('error', '刪除對話失敗');
       }
+
+      // 重新載入文件夾列表以更新統計數字
+      await loadFolders();
+
+      showNotification('success', '已刪除對話');
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+      showNotification('error', '刪除對話失敗');
     }
   };
 
@@ -269,29 +346,229 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
     }
   };
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
-    if (days === 0) {
-      return '今天';
-    } else if (days === 1) {
-      return '昨天';
-    } else if (days < 7) {
-      return `${days} 天前`;
-    } else {
-      return date.toLocaleDateString('zh-TW');
+  // Folder 相關處理函數
+  const handleFolderSelect = (folderId: string) => {
+    setSelectedFolderId(folderId);
+  };
+
+  const createNewFolder = async () => {
+    if (!newFolderName.trim()) return;
+
+    try {
+      const newFolder = await folderApi.createFolder(newFolderName.trim());
+      setFolders(prev => [...prev, newFolder]);
+      setNewFolderName('');
+      setShowFolderForm(false);
+      showNotification('success', `文件夾 "${newFolder.name}" 已創建`);
+    } catch (error) {
+      console.error('Failed to create folder:', error);
+      showNotification('error', '創建文件夾失敗');
     }
   };
 
+  const handleEditFolder = (folderId: string, currentName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingFolderId(folderId);
+    setEditingFolderName(currentName);
+  };
+
+  const handleSaveFolderName = async () => {
+    if (!editingFolderId || !editingFolderName.trim()) return;
+
+    try {
+      await folderApi.updateFolder(editingFolderId, editingFolderName.trim());
+      setFolders(prev => prev.map(folder =>
+        folder.id === editingFolderId
+          ? { ...folder, name: editingFolderName.trim() }
+          : folder
+      ));
+      showNotification('success', '文件夾名稱已更新');
+    } catch (error) {
+      console.error('Failed to update folder:', error);
+      showNotification('error', '更新文件夾名稱失敗');
+    } finally {
+      setEditingFolderId(null);
+      setEditingFolderName('');
+    }
+  };
+
+  const deleteFolder = async (folderId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return;
+
+    if (confirm(`確定要刪除文件夾 "${folder.name}" 嗎？其中的對話會被移動到"未分類"文件夾。`)) {
+      try {
+        await folderApi.deleteFolder(folderId);
+
+        // 如果刪除的是當前選中的文件夾，切換到"未分類"
+        if (selectedFolderId === folderId) {
+          const uncategorizedFolder = folders.find(f => f.name === '未分類');
+          if (uncategorizedFolder) {
+            setSelectedFolderId(uncategorizedFolder.id);
+          }
+        }
+
+        // 重新載入文件夾列表以更新統計數字
+        await loadFolders();
+
+        // 重新載入對話列表
+        await loadConversations();
+
+        showNotification('success', '文件夾已刪除');
+      } catch (error) {
+        console.error('Failed to delete folder:', error);
+        showNotification('error', '刪除文件夾失敗');
+      }
+    }
+  };
+
+  const handleMoveConversation = (conversationId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConversationToMove(conversationId);
+    setShowMoveDialog(true);
+  };
+
+  const moveConversationToFolder = async (targetFolderId: string) => {
+    if (!conversationToMove) return;
+
+    try {
+      await conversationApi.moveConversationToFolder(conversationToMove, targetFolderId);
+      showNotification('success', '對話已移動');
+
+      // 重新載入文件夾列表以更新統計數字
+      await loadFolders();
+
+      // 重新載入對話列表
+      await loadConversations();
+    } catch (error) {
+      console.error('Failed to move conversation:', error);
+      showNotification('error', '移動對話失敗');
+    } finally {
+      setShowMoveDialog(false);
+      setConversationToMove(null);
+    }
+  };
+
+
   return (
     <div className="sidebar">
+      {/* 文件夾選擇區 */}
+      <div className="folder-section">
+        <div className="folder-selector">
+          <label className="folder-label">文件夾:</label>
+          <div className="folder-select-container">
+            <select
+              className="folder-select"
+              value={selectedFolderId || ''}
+              onChange={(e) => handleFolderSelect(e.target.value)}
+            >
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.name} ({folder.conversation_count})
+                </option>
+              ))}
+            </select>
+            <div className="folder-actions">
+              <button
+                className="create-folder-btn"
+                onClick={() => setShowFolderForm(true)}
+                title="創建新文件夾"
+              >
+                ➕
+              </button>
+              {selectedFolderId && (
+                <>
+                  {folders.find(f => f.id === selectedFolderId)?.name !== '未分類' && (
+                    <>
+                      <button
+                        className="edit-folder-btn"
+                        onClick={() => {
+                          const folder = folders.find(f => f.id === selectedFolderId);
+                          if (folder) {
+                            setEditingFolderId(folder.id);
+                            setEditingFolderName(folder.name);
+                          }
+                        }}
+                        title="編輯文件夾名稱"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        className="delete-folder-btn"
+                        onClick={() => {
+                          const folder = folders.find(f => f.id === selectedFolderId);
+                          if (folder) {
+                            deleteFolder(folder.id, { stopPropagation: () => {} } as React.MouseEvent);
+                          }
+                        }}
+                        title="刪除文件夾"
+                      >
+                        🗑️
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 創建文件夾表單 */}
+        {showFolderForm && (
+          <div className="folder-form">
+            <input
+              type="text"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="輸入文件夾名稱"
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') createNewFolder();
+                if (e.key === 'Escape') setShowFolderForm(false);
+              }}
+              autoFocus
+              className="folder-name-input"
+            />
+            <div className="folder-form-actions">
+              <button onClick={createNewFolder} className="save-btn">✓</button>
+              <button onClick={() => setShowFolderForm(false)} className="cancel-btn">✕</button>
+            </div>
+          </div>
+        )}
+
+        {/* 編輯文件夾表單 */}
+        {editingFolderId && (
+          <div className="folder-form">
+            <input
+              type="text"
+              value={editingFolderName}
+              onChange={(e) => setEditingFolderName(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') handleSaveFolderName();
+                if (e.key === 'Escape') {
+                  setEditingFolderId(null);
+                  setEditingFolderName('');
+                }
+              }}
+              onBlur={handleSaveFolderName}
+              autoFocus
+              className="folder-name-input"
+            />
+            <div className="folder-form-actions">
+              <button onClick={handleSaveFolderName} className="save-btn">✓</button>
+              <button onClick={() => {
+                setEditingFolderId(null);
+                setEditingFolderName('');
+              }} className="cancel-btn">✕</button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* 標題 */}
       <div className="sidebar-header">
         <h2 className="sidebar-title">對話列表</h2>
-        <button 
+        <button
           className="create-conversation-btn"
           onClick={createNewConversation}
           title="創建新對話"
@@ -332,24 +609,23 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
                 </div>
               ) : (
                 <>
-                  <div 
+                  <div
                     className="conversation-title"
                     onDoubleClick={(e) => handleEditConversation(conversation.id, conversation.title, e)}
                   >
                     {conversation.title}
                   </div>
-                  <div className="conversation-meta">
-                    <span className="conversation-date">
-                      {formatDate(conversation.created_at)}
-                    </span>
-                    <span className="message-count">
-                      {conversation.message_count} 訊息
-                    </span>
-                  </div>
                 </>
               )}
             </div>
             <div className="conversation-actions">
+              <button
+                className="move-btn"
+                onClick={(e) => handleMoveConversation(conversation.id, e)}
+                title="移動到其他文件夾"
+              >
+                📁
+              </button>
               <button
                 className="edit-btn"
                 onClick={(e) => handleEditConversation(conversation.id, conversation.title, e)}
@@ -443,6 +719,34 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
           )}
         </div>
       </div>
+
+      {/* 移動對話對話框 */}
+      {showMoveDialog && conversationToMove && (
+        <div className="move-dialog-overlay" onClick={() => setShowMoveDialog(false)}>
+          <div className="move-dialog" onClick={(e) => e.stopPropagation()}>
+            <h4>移動對話到文件夾</h4>
+            <div className="folder-options">
+              {folders.map((folder) => (
+                <button
+                  key={folder.id}
+                  className={`folder-option ${folder.id === selectedFolderId ? 'current' : ''}`}
+                  onClick={() => moveConversationToFolder(folder.id)}
+                  disabled={folder.id === selectedFolderId}
+                >
+                  {folder.name}
+                  {folder.id === selectedFolderId && ' (當前)'}
+                </button>
+              ))}
+            </div>
+            <button
+              className="cancel-move-btn"
+              onClick={() => setShowMoveDialog(false)}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 通知消息 */}
       {notification && (
