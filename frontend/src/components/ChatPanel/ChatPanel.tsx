@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { conversationApi } from '../../services/api';
 import './ChatPanel.css';
 
@@ -367,9 +370,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
               )}
               <div className="message-text">
                 {message.role === 'assistant' ? (
-                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
                 ) : (
-                  message.content
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
                 )}
               </div>
               {message.raw_sources && message.raw_sources.length > 0 && (
