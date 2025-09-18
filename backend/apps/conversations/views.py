@@ -28,7 +28,8 @@ def chat_with_pdfs(request, conversation_id):
     conversation = get_object_or_404(Conversation, id=conversation_id)
     user_message = request.data.get('message', '').strip()
     image_ids = request.data.get('image_ids', [])
-    
+    context_mode = request.data.get('context_mode', True)  # 新增 context mode 參數
+
     if not user_message and not image_ids:
         return Response({'error': '消息和圖片不能同時為空'}, status=status.HTTP_400_BAD_REQUEST)
     
@@ -45,13 +46,16 @@ def chat_with_pdfs(request, conversation_id):
             images = ImageAttachment.objects.filter(id__in=image_ids)
             user_msg.images.set(images)
         
-        # 獲取對話中的所有 PDF
-        pdfs = conversation.pdfs.filter(vectorization_status='completed')
-        
-        if not pdfs.exists():
-            return Response({
-                'error': '該對話中沒有已完成向量化的 PDF 文檔'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        # 獲取對話中的所有 PDF（僅在啟用 context mode 時檢查）
+        if context_mode:
+            pdfs = conversation.pdfs.filter(vectorization_status='completed')
+
+            if not pdfs.exists():
+                return Response({
+                    'error': '該對話中沒有已完成向量化的 PDF 文檔'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            pdfs = conversation.pdfs.filter(vectorization_status='completed')
         
         # 獲取系統配置
         from apps.system_config.models import SystemConfig
@@ -60,8 +64,8 @@ def chat_with_pdfs(request, conversation_id):
         # 初始化 RAG 服務
         rag_service = RAGService()
         
-        # 根據 RAG 模式決定處理方式
-        if getattr(config, 'rag_enabled', True):
+        # 根據 context mode 和 RAG 模式決定處理方式
+        if context_mode and pdfs and getattr(config, 'rag_enabled', True):
             # RAG 模式：搜索所有 PDF
             all_results = []
             for pdf in pdfs:
@@ -129,8 +133,8 @@ def chat_with_pdfs(request, conversation_id):
             else:
                 answer = "抱歉，在對話的 PDF 中沒有找到相關內容。"
                 citations = []
-        else:
-            # 非 RAG 模式：使用完整 PDF 內容
+        elif context_mode and pdfs and not getattr(config, 'rag_enabled', True):
+            # 非 RAG 模式但啟用 context：使用完整 PDF 內容
             all_results = []
             for pdf in pdfs:
                 if pdf.file_exists:
@@ -143,7 +147,7 @@ def chat_with_pdfs(request, conversation_id):
                             'page_number': 1
                         }
                     })
-            
+
             # 使用 Gemini 生成回答
             if all_results:
                 context = "\n\n".join([result['text'][:2000] for result in all_results[:2]])
@@ -152,23 +156,23 @@ def chat_with_pdfs(request, conversation_id):
                     'page_number': result['metadata']['page_number'],
                     'text_content': result['text'][:200] + '...' if len(result['text']) > 200 else result['text']
                 } for result in all_results[:3]]
-                
+
                 try:
                     if config.gemini_api_key:
                         import google.generativeai as genai
                         genai.configure(api_key=config.gemini_api_key)
                         model = genai.GenerativeModel(config.gemini_model)
-                        
+
                         # 準備內容列表
                         content_parts = []
-                        
+
                         if user_message:
                             prompt = f"{config.system_prompt}\n\n文檔內容：\n{context}\n\n用戶問題：{user_message}"
                         else:
                             prompt = f"{config.system_prompt}\n\n文檔內容：\n{context}\n\n請分析用戶提供的圖片，並結合文檔內容進行說明。"
-                        
+
                         content_parts.append(prompt)
-                        
+
                         # 添加圖片
                         if image_ids:
                             images = ImageAttachment.objects.filter(id__in=image_ids)
@@ -180,7 +184,7 @@ def chat_with_pdfs(request, conversation_id):
                                         "mime_type": image.mime_type,
                                         "data": image_data
                                     })
-                        
+
                         response = model.generate_content(content_parts)
                         answer = response.text
                     else:
@@ -191,6 +195,46 @@ def chat_with_pdfs(request, conversation_id):
             else:
                 answer = "沒有找到相關文檔內容。"
                 citations = []
+        else:
+            # 關閉 context mode：直接回答用戶問題，不使用 PDF 內容
+            citations = []
+
+            try:
+                if config.gemini_api_key:
+                    import google.generativeai as genai
+                    genai.configure(api_key=config.gemini_api_key)
+                    model = genai.GenerativeModel(config.gemini_model)
+
+                    # 準備內容列表
+                    content_parts = []
+
+                    # 不添加 PDF 內容，只使用基本的系統提示
+                    if user_message:
+                        prompt = f"{config.system_prompt}\n\n用戶問題：{user_message}\n\n請直接回答問題。"
+                    else:
+                        prompt = f"{config.system_prompt}\n\n請分析用戶提供的圖片。"
+
+                    content_parts.append(prompt)
+
+                    # 添加圖片
+                    if image_ids:
+                        images = ImageAttachment.objects.filter(id__in=image_ids)
+                        for image in images:
+                            if image.file_exists:
+                                with open(image.file_path, 'rb') as f:
+                                    image_data = f.read()
+                                content_parts.append({
+                                    "mime_type": image.mime_type,
+                                    "data": image_data
+                                })
+
+                    response = model.generate_content(content_parts)
+                    answer = response.text
+                else:
+                    answer = "請在設定中配置 Gemini API Key。"
+            except Exception as e:
+                print(f"Gemini API 錯誤: {e}")
+                answer = "生成回答時發生錯誤。"
 
         
         # 保存 AI 回答

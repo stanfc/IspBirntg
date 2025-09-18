@@ -187,14 +187,18 @@ export const conversationApi = {
   },
 
   // 發送消息並獲取回答
-  async sendMessage(conversationId: string, message: string, imageIds?: string[]): Promise<{
+  async sendMessage(conversationId: string, message: string, imageIds?: string[], contextMode?: boolean): Promise<{
     user_message: any;
     ai_response: any;
     citations: any[];
   }> {
     return apiRequest(`/conversations/${conversationId}/chat/`, {
       method: 'POST',
-      body: JSON.stringify({ message, image_ids: imageIds }),
+      body: JSON.stringify({
+        message,
+        image_ids: imageIds,
+        context_mode: contextMode !== undefined ? contextMode : true
+      }),
     });
   },
 

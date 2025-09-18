@@ -40,6 +40,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
   const [expandedCitations, setExpandedCitations] = useState<{[key: string]: boolean}>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [contextMode, setContextMode] = useState<boolean>(true);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -182,7 +183,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
 
     try {
       const imageIds = currentImages.map(img => img.id);
-      const response = await conversationApi.sendMessage(conversationId, currentInput, imageIds);
+      const response = await conversationApi.sendMessage(conversationId, currentInput, imageIds, contextMode);
       
       // 調試信息
       console.log('後端返回的引用數量:', response.citations?.length || 0);
@@ -451,6 +452,23 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
 
       {/* 輸入區域 */}
       <div className="chat-input-container">
+        {/* Context Mode 開關 */}
+        <div className="context-mode-toggle">
+          <label className="context-mode-label">
+            <input
+              type="checkbox"
+              checked={contextMode}
+              onChange={(e) => setContextMode(e.target.checked)}
+              className="context-mode-checkbox"
+            />
+            <span className="context-mode-text">
+              Context Mode {contextMode ? '(開啟)' : '(關閉)'}
+            </span>
+            <span className="context-mode-description">
+              {contextMode ? '使用PDF內容作為上下文' : '不使用PDF內容，直接回答問題'}
+            </span>
+          </label>
+        </div>
         {/* 圖片預覽 */}
         {uploadedImages.length > 0 && (
           <div className="image-preview-container">

@@ -292,6 +292,47 @@
   flex-shrink: 0;
 }
 
+/* Context Mode 開關 */
+.context-mode-toggle {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background-color: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.context-mode-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  margin: 0;
+  flex-wrap: wrap;
+}
+
+.context-mode-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: #3498db;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.context-mode-text {
+  font-weight: 500;
+  color: #333;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.context-mode-description {
+  font-size: 0.8rem;
+  color: #6c757d;
+  margin-left: auto;
+  min-width: 0;
+}
+
 .chat-input-form {
   margin-bottom: 0.5rem;
 }
