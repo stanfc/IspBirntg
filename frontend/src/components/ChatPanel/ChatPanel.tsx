@@ -43,7 +43,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
   const [contextMode, setContextMode] = useState<boolean>(true);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
   };
 
   useEffect(() => {
