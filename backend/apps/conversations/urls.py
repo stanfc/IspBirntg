@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 
 app_name = 'conversations'
+# Force reload
 
 urlpatterns = [
     # 對話相關路由
@@ -11,6 +12,7 @@ urlpatterns = [
     path('<uuid:conversation_id>/update/', views.update_conversation, name='update-conversation'),
     path('<uuid:conversation_id>/messages/', views.conversation_messages, name='conversation-messages'),
     path('<uuid:conversation_id>/chat/', views.chat_with_pdfs, name='chat-with-pdfs'),
+    path('<uuid:conversation_id>/chat/stream/', views.chat_with_pdfs_stream, name='chat-with-pdfs-stream'),
     path('<uuid:conversation_id>/add-pdf/', views.add_pdf_to_conversation, name='add-pdf-to-conversation'),
     path('<uuid:conversation_id>/remove-pdf/<uuid:pdf_id>/', views.remove_pdf_from_conversation, name='remove-pdf-from-conversation'),
     path('<uuid:conversation_id>/pdfs/', views.get_conversation_pdfs, name='get-conversation-pdfs'),

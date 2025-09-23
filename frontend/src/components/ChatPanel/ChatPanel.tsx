@@ -4,6 +4,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { conversationApi } from '../../services/api';
+import StreamingMessageContent from './StreamingMessageContent';
 import './ChatPanel.css';
 
 interface Message {
@@ -32,36 +33,30 @@ interface ChatPanelProps {
 
 const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, externalImages, onExternalTextUsed, onExternalImagesUsed, onCitationClick }) => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [messagesHeight, setMessagesHeight] = useState<number | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] = useState<{id: string, filename: string, file: File | null}[]>([]);
   const [expandedCitations, setExpandedCitations] = useState<{[key: string]: boolean}>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [contextMode, setContextMode] = useState<boolean>(true);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
     if (messagesContainerRef.current) {
-      const container = messagesContainerRef.current;
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: 'smooth'
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: behavior,
       });
     }
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  // 處理剪貼板貼上圖片
-  useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
       if (!items) return;
-
       for (const item of Array.from(items)) {
         if (item.type.startsWith('image/')) {
           e.preventDefault();
@@ -69,11 +64,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
           if (file) {
             try {
               const result = await conversationApi.uploadImage(file);
-              setUploadedImages(prev => [...prev, {
-                id: result.id,
-                filename: result.filename,
-                file: file
-              }]);
+              setUploadedImages(prev => [...prev, { id: result.id, filename: result.filename, file: file }]);
             } catch (error) {
               console.error('Paste upload failed:', error);
               alert('貼上圖片失敗');
@@ -82,80 +73,48 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
         }
       }
     };
-
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
   }, []);
 
-
-
-  // 處理外部文字輸入
   useEffect(() => {
     if (externalText) {
       setInputText(externalText);
-      if (onExternalTextUsed) {
-        onExternalTextUsed();
-      }
+      if (onExternalTextUsed) onExternalTextUsed();
     }
   }, [externalText, onExternalTextUsed]);
 
-  // 處理外部圖片輸入
   useEffect(() => {
     if (externalImages && externalImages.length > 0) {
-      console.log('Adding external images:', externalImages);
-      // 直接使用圖片 ID，不轉換為 File
-      const images = externalImages.map((imageId) => ({
-        id: imageId,
-        filename: 'screenshot.png',
-        file: null // 不使用 File 物件
-      }));
-      
+      const images = externalImages.map(id => ({ id, filename: 'screenshot.png', file: null }));
       setUploadedImages(prev => [...prev, ...images]);
-      
-      if (onExternalImagesUsed) {
-        onExternalImagesUsed();
-      }
+      if (onExternalImagesUsed) onExternalImagesUsed();
     }
   }, [externalImages, onExternalImagesUsed]);
 
-  // 處理引用點擊
   const handleCitationClick = (text: string) => {
     const pageMatch = text.match(/第(\d+)頁|頁碼(\d+)|page\s*(\d+)/i);
     if (pageMatch && onCitationClick) {
-      const pageNumber = parseInt(pageMatch[1] || pageMatch[2] || pageMatch[3]);
-      onCitationClick(pageNumber);
+      onCitationClick(parseInt(pageMatch[1] || pageMatch[2] || pageMatch[3]));
     }
   };
 
-  // 渲染消息內容，處理引用連結
-  const renderMessageContent = (content: string) => {
-    return content.replace(/\[([^\]]+)\]/g, (match, citation) => {
-      return `<span class="citation" onclick="handleCitationClick('${citation}')" style="color: #3498db; cursor: pointer; text-decoration: underline;">[${citation}]</span>`;
-    });
-  };
-
-  // 全局處理引用點擊
   useEffect(() => {
     (window as any).handleCitationClick = handleCitationClick;
-    return () => {
-      delete (window as any).handleCitationClick;
-    };
+    return () => { delete (window as any).handleCitationClick; };
   }, [onCitationClick]);
 
   useEffect(() => {
-    if (conversationId) {
-      loadMessages();
-    } else {
-      setMessages([]);
-    }
+    if (conversationId) loadMessages();
+    else setMessages([]);
   }, [conversationId]);
 
   const loadMessages = async () => {
     if (!conversationId) return;
-    
     try {
       const response = await conversationApi.getMessages(conversationId);
       setMessages(response.messages);
+      setTimeout(() => scrollToBottom('auto'), 100);
     } catch (error) {
       console.error('Failed to load messages:', error);
       setMessages([]);
@@ -170,61 +129,98 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
     const currentImages = [...uploadedImages];
     setInputText('');
     setUploadedImages([]);
-    
-    // 立即顯示用戶消息
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: currentInput || '[圖片]',
-      timestamp: new Date().toISOString(),
-      images: currentImages.map(img => ({
-        id: img.id,
-        filename: img.filename,
-        mime_type: 'image/png'
-      }))
-    };
-    
-    setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
+    setIsThinking(true);
+
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: currentInput,
+      timestamp: new Date().toISOString(),
+      images: currentImages.map(img => ({ id: img.id, filename: img.filename, mime_type: 'image/png' }))
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setTimeout(() => scrollToBottom('auto'), 0);
+
+    const tempAiMessageId = `temp-ai-${Date.now()}`;
+    setStreamingId(tempAiMessageId);
+    let aiMessage: Message | null = null;
+    let currentContent = '';
+    let currentCitations: any[] = [];
+    let isFirstContentChunk = true;
 
     try {
       const imageIds = currentImages.map(img => img.id);
-      const response = await conversationApi.sendMessage(conversationId, currentInput, imageIds, contextMode);
-      
-      // 調試信息
-      console.log('後端返回的引用數量:', response.citations?.length || 0);
-      console.log('引用內容:', response.citations);
-      
-      // 添加 AI 回答
-      setMessages(prev => [
-        ...prev,
-        {
-          ...response.ai_response,
-          raw_sources: response.citations
+      await conversationApi.sendMessageStream(
+        conversationId,
+        currentInput,
+        imageIds,
+        contextMode,
+        (data) => {
+          switch (data.type) {
+            case 'user_message': break;
+            case 'citations': currentCitations = data.citations; break;
+            case 'content':
+              if (isFirstContentChunk) {
+                setIsThinking(false);
+                isFirstContentChunk = false;
+                setTimeout(() => scrollToBottom(), 50);
+              }
+              currentContent += data.content;
+              if (!aiMessage) {
+                aiMessage = {
+                  id: tempAiMessageId,
+                  role: 'assistant',
+                  content: currentContent,
+                  timestamp: new Date().toISOString(),
+                  raw_sources: currentCitations
+                };
+                setMessages(prev => [...prev, aiMessage!]);
+              } else {
+                setMessages(prev => prev.map(msg =>
+                  msg.id === tempAiMessageId ? { ...msg, content: currentContent, raw_sources: currentCitations } : msg
+                ));
+              }
+              break;
+            case 'complete':
+              if (data.message_id && aiMessage) {
+                setMessages(prev => prev.map(msg =>
+                  msg.id === tempAiMessageId ? { ...data.message, raw_sources: currentCitations } : msg
+                ));
+              }
+              setStreamingId(null);
+              break;
+            case 'error':
+              console.error('Streaming error:', data.error);
+              setIsThinking(false);
+              setStreamingId(null);
+              break;
+          }
+        },
+        (error) => {
+          console.error('Streaming error:', error);
+          const errorMessage: Message = { id: `error-${Date.now()}`, role: 'assistant', content: `抱歉，發送消息時發生錯誤：${error}`, timestamp: new Date().toISOString() };
+          setMessages(prev => [...prev.filter(msg => msg.id !== tempAiMessageId), errorMessage]);
+          setStreamingId(null);
+        },
+        () => {
+          console.log('Streaming completed');
+          setStreamingId(null);
         }
-      ]);
-      
+      );
     } catch (error) {
       console.error('Failed to send message:', error);
-      
-      // 顯示錯誤消息
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: '抱歉，發送消息時發生錯誤。請確保您已上傳並完成向量化的 PDF 文檔。',
-        timestamp: new Date().toISOString()
-      };
-      
-      setMessages(prev => [...prev, errorMessage]);
+      const errorMessage: Message = { id: `error-${Date.now()}`, role: 'assistant', content: '抱歉，發送消息時發生錯誤。請確保您已上傳並完成向量化的 PDF 文檔。', timestamp: new Date().toISOString() };
+      setMessages(prev => [...prev.filter(msg => msg.id !== tempAiMessageId), errorMessage]);
+      setStreamingId(null);
     } finally {
       setIsLoading(false);
+      setIsThinking(false);
     }
   };
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
-    
-    // 自動調整高度
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
@@ -241,32 +237,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-
     for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) {
-        alert('只支持圖片檔案');
-        continue;
-      }
-
-      if (file.size > 10 * 1024 * 1024) {
-        alert('圖片大小不能超過 10MB');
-        continue;
-      }
-
+      if (!file.type.startsWith('image/')) { alert('只支持圖片檔案'); continue; }
+      if (file.size > 10 * 1024 * 1024) { alert('圖片大小不能超過 10MB'); continue; }
       try {
         const result = await conversationApi.uploadImage(file);
-        setUploadedImages(prev => [...prev, {
-          id: result.id,
-          filename: result.filename,
-          file: file
-        }]);
+        setUploadedImages(prev => [...prev, { id: result.id, filename: result.filename, file: file }]);
       } catch (error) {
         console.error('Upload failed:', error);
         alert('圖片上傳失敗');
       }
     }
-
-    // 清空 input
     e.target.value = '';
   };
 
@@ -275,42 +256,41 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
   };
 
   const toggleCitations = (messageId: string) => {
-    setExpandedCitations(prev => ({
-      ...prev,
-      [messageId]: !prev[messageId]
-    }));
+    setExpandedCitations(prev => ({ ...prev, [messageId]: !prev[messageId] }));
   };
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('zh-TW', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
+    return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
   };
 
   const handleCitationClickFromSource = (citation: Citation) => {
-    if (onCitationClick) {
-      onCitationClick(citation.page_number);
-    }
+    if (onCitationClick) onCitationClick(citation.page_number);
   };
 
   const handleResize = (e: React.MouseEvent) => {
     e.preventDefault();
     const startY = e.clientY;
-    const currentHeight = messagesContainerRef.current?.clientHeight || 300;
-    
-    // 如果還沒有設定高度，先設定為當前高度
-    if (messagesHeight === null) {
-      setMessagesHeight(currentHeight);
-    }
-    
-    const startHeight = messagesHeight || currentHeight;
+    const startHeight = messagesContainerRef.current?.offsetHeight || 0;
 
     const handleMouseMove = (e: MouseEvent) => {
       const deltaY = e.clientY - startY;
-      const newHeight = Math.max(200, Math.min(600, startHeight + deltaY));
-      setMessagesHeight(newHeight);
+      const newHeight = startHeight + deltaY;
+
+      const minMessagesHeight = 100;
+      const minInputAreaHeight = 150;
+      const resizerHeight = 4;
+      
+      const chatPanel = messagesContainerRef.current?.parentElement;
+      if (!chatPanel) return;
+      const totalHeight = chatPanel.offsetHeight;
+      const maxMessagesHeight = totalHeight - minInputAreaHeight - resizerHeight;
+
+      const finalHeight = Math.max(minMessagesHeight, Math.min(newHeight, maxMessagesHeight));
+
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.style.flex = `0 0 ${finalHeight}px`;
+      }
     };
 
     const handleMouseUp = () => {
@@ -320,6 +300,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const resetResize = () => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.style.flex = '';
+    }
   };
 
   if (!conversationId) {
@@ -336,198 +322,95 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
 
   return (
     <div className="chat-panel">
-      {/* 聊天頭部 */}
       <div className="chat-header">
         <h3>AI 助手</h3>
-        <div className="chat-status">
-          <span className="status-indicator online"></span>
-          <span>線上</span>
-        </div>
+        <div className="chat-status"><span className="status-indicator online"></span><span>線上</span></div>
       </div>
-
-      {/* 消息區域 */}
-      <div 
-        ref={messagesContainerRef}
-        className="messages-container" 
-        style={messagesHeight ? { height: `${messagesHeight}px`, flex: 'none' } : {}}
-      >
+      <div ref={messagesContainerRef} className="messages-container">
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}
-          >
-            <div className="message-avatar">
-              {message.role === 'user' ? '👤' : '🤖'}
-            </div>
+          <div key={message.id} className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}>
+            <div className="message-avatar">{message.role === 'user' ? '👤' : '🤖'}</div>
             <div className="message-content">
-              {/* 顯示圖片 */}
               {message.images && message.images.length > 0 && (
                 <div className="message-images">
                   {message.images.map((image) => (
                     <div key={image.id} className="message-image">
-                      <img 
-                        src={`http://localhost:8080/api/conversations/images/${image.id}/`}
-                        alt={image.filename}
-                        className="message-image-content"
-                      />
+                      <img src={`http://localhost:8080/api/conversations/images/${image.id}/`} alt={image.filename} className="message-image-content" />
                       <span className="image-caption">{image.filename}</span>
                     </div>
                   ))}
                 </div>
               )}
               <div className="message-text">
-                {message.role === 'assistant' ? (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkMath]}
-                    rehypePlugins={[rehypeKatex]}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
+                {message.id === streamingId ? (
+                  <StreamingMessageContent content={message.content} />
                 ) : (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkMath]}
-                    rehypePlugins={[rehypeKatex]}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{message.content}</ReactMarkdown>
                 )}
               </div>
               {message.raw_sources && message.raw_sources.length > 0 && (
                 <div className="citations">
-                  <div 
-                    className="citations-toggle"
-                    onClick={() => toggleCitations(message.id)}
-                  >
-                    <span className="toggle-icon">
-                      {expandedCitations[message.id] ? '▼' : '▶'}
-                    </span>
+                  <div className="citations-toggle" onClick={() => toggleCitations(message.id)}>
+                    <span className="toggle-icon">{expandedCitations[message.id] ? '▼' : '▶'}</span>
                     <span>引用來源 ({message.raw_sources.length})</span>
                   </div>
                   {expandedCitations[message.id] && (
                     <div className="citations-content">
                       {message.raw_sources.map((citation, index) => (
-                        <div
-                          key={index}
-                          className="citation"
-                          onClick={() => handleCitationClickFromSource(citation)}
-                        >
+                        <div key={index} className="citation" onClick={() => handleCitationClickFromSource(citation)}>
                           <div className="citation-header">
                             <span className="citation-icon">📄</span>
-                            <span className="citation-source">
-                              {citation.pdf_name} - 第 {citation.page_number} 頁
-                            </span>
+                            <span className="citation-source">{citation.pdf_name} - 第 {citation.page_number} 頁</span>
                           </div>
-                          <div className="citation-text">
-                            "{citation.text_content}"
-                          </div>
+                          <div className="citation-text">"{citation.text_content}"</div>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
               )}
-              <div className="message-timestamp">
-                {formatTimestamp(message.timestamp)}
-              </div>
+              <div className="message-timestamp">{formatTimestamp(message.timestamp)}</div>
             </div>
           </div>
         ))}
-        
-        {/* 載入指示器 */}
-        {isLoading && (
+        {isThinking && (
           <div className="message assistant-message">
             <div className="message-avatar">🤖</div>
             <div className="message-content">
-              <div className="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
+              <div className="typing-indicator"><span></span><span></span><span></span></div>
             </div>
           </div>
         )}
-        
         <div ref={messagesEndRef} />
       </div>
-
-      {/* 水平分割線 */}
-      <div 
-        className="chat-resizer"
-        onMouseDown={handleResize}
-      />
-
-      {/* 輸入區域 */}
       <div className="chat-input-container">
-        {/* Context Mode 開關 */}
+        <div className="chat-resizer" onMouseDown={handleResize} onDoubleClick={resetResize} />
         <div className="context-mode-toggle">
-          <label className="context-mode-label">
-            <input
-              type="checkbox"
-              checked={contextMode}
-              onChange={(e) => setContextMode(e.target.checked)}
-              className="context-mode-checkbox"
-            />
-            <span className="context-mode-text">
-              Context Mode {contextMode ? '(開啟)' : '(關閉)'}
-            </span>
-            <span className="context-mode-description">
-              {contextMode ? '使用PDF內容作為上下文' : '不使用PDF內容，直接回答問題'}
-            </span>
+          <div className="context-mode-text-wrapper">
+            <span className="context-mode-text"> 是否使用PDF內容作為上下文 </span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={contextMode} onChange={(e) => setContextMode(e.target.checked)} />
+            <span className="slider round"></span>
           </label>
         </div>
-        {/* 圖片預覽 */}
         {uploadedImages.length > 0 && (
           <div className="image-preview-container">
             {uploadedImages.map((image) => (
               <div key={image.id} className="image-preview">
-                <img 
-                  src={image.file ? URL.createObjectURL(image.file) : `http://localhost:8080/api/conversations/images/${image.id}/`} 
-                  alt={image.filename}
-                  className="preview-image"
-                />
-                <button 
-                  className="remove-image-btn"
-                  onClick={() => removeImage(image.id)}
-                  type="button"
-                >
-                  ×
-                </button>
+                <img src={image.file ? URL.createObjectURL(image.file) : `http://localhost:8080/api/conversations/images/${image.id}/`} alt={image.filename} className="preview-image" />
+                <button className="remove-image-btn" onClick={() => removeImage(image.id)} type="button">×</button>
                 <span className="image-filename">{image.filename}</span>
               </div>
             ))}
           </div>
         )}
-        
         <form onSubmit={handleSubmit} className="chat-input-form">
           <div className="input-wrapper">
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleImageUpload}
-              style={{ display: 'none' }}
-              id="image-upload"
-            />
-            <label htmlFor="image-upload" className="image-upload-btn" title="上傳圖片">
-              📎
-            </label>
-            <textarea
-              ref={textareaRef}
-              value={inputText}
-              onChange={handleTextareaChange}
-              onKeyPress={handleKeyPress}
-              placeholder="輸入您的問題..."
-              className="chat-input"
-              rows={1}
-              disabled={isLoading}
-            />
-            <button
-              type="submit"
-              className="send-button"
-              disabled={isLoading}
-            >
-              {isLoading ? '⏳' : '📤'}
-            </button>
+            <input type="file" accept="image/*" multiple onChange={handleImageUpload} style={{ display: 'none' }} id="image-upload" />
+            <label htmlFor="image-upload" className="image-upload-btn" title="上傳圖片">📎</label>
+            <textarea ref={textareaRef} value={inputText} onChange={handleTextareaChange} onKeyPress={handleKeyPress} placeholder="輸入您的問題..." className="chat-input" rows={1} disabled={isLoading} />
+            <button type="submit" className="send-button" disabled={isLoading}>{isLoading ? '⏳' : '📤'}</button>
           </div>
         </form>
       </div>

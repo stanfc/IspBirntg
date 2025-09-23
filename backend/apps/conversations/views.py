@@ -3,6 +3,9 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
+from django.http import StreamingHttpResponse
+import json
+import time
 
 from .models import Folder, Conversation, Message, ImageAttachment
 from .serializers import FolderSerializer, ConversationSerializer, MessageSerializer
@@ -251,6 +254,160 @@ def chat_with_pdfs(request, conversation_id):
             'citations': citations
         })
         
+    except Exception as e:
+        return Response({
+            'error': f'處理消息時發生錯誤: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def chat_with_pdfs_stream(request, conversation_id):
+    """與 PDF 進行問答對話 - 串流回應版本"""
+    conversation = get_object_or_404(Conversation, id=conversation_id)
+    user_message = request.data.get('message', '').strip()
+    image_ids = request.data.get('image_ids', [])
+    context_mode = request.data.get('context_mode', True)
+
+    if not user_message and not image_ids:
+        return Response({'error': '消息和圖片不能同時為空'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # 保存用戶消息
+        user_msg = Message.objects.create(
+            conversation=conversation,
+            role='user',
+            content=user_message or '[圖片]'
+        )
+
+        # 關聯圖片
+        if image_ids:
+            images = ImageAttachment.objects.filter(id__in=image_ids)
+            user_msg.images.set(images)
+
+        # 準備context和citations
+        citations = []
+        context_texts = []
+
+        # 獲取對話中的所有 PDF（僅在啟用 context mode 時檢查）
+        if context_mode:
+            pdfs = conversation.pdfs.filter(vectorization_status='completed')
+            # 如果沒有PDF，改為不使用context mode模式
+            if not pdfs.exists():
+                context_mode = False
+                pdfs = conversation.pdfs.none()  # 空queryset
+
+        # 獲取系統配置
+        from apps.system_config.models import SystemConfig
+        config = SystemConfig.get_config()
+
+        if context_mode and pdfs.exists():
+            # 初始化 RAG 服務
+            rag_service = RAGService()
+
+            if pdfs and getattr(config, 'rag_enabled', True):
+                # RAG 模式：搜索所有 PDF
+                all_results = []
+                for pdf in pdfs:
+                    if pdf.vector_index_path and pdf.file_exists:
+                        index = rag_service.load_index(pdf.vector_index_path)
+                        if index:
+                            results = rag_service.query_index(index, user_message, top_k=config.top_k)
+                            all_results.extend(results)
+
+                if all_results:
+                    # 按相關性排序
+                    all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+
+                    # 構建上下文和引用
+                    for result in all_results[:5]:
+                        context_texts.append(result['text'])
+                        citations.append({
+                            'pdf_name': result['metadata'].get('filename', '未知文檔'),
+                            'page_number': result['metadata'].get('page_number', 1),
+                            'text_content': result['text'][:200] + '...' if len(result['text']) > 200 else result['text']
+                        })
+
+        def generate_streaming_response():
+            """生成串流回應"""
+            try:
+                if not getattr(config, 'gemini_api_key', None):
+                    yield f"data: {json.dumps({'error': '請在設定中配置 Gemini API Key'})}\n\n"
+                    return
+
+                import google.generativeai as genai
+                genai.configure(api_key=config.gemini_api_key)
+                model = genai.GenerativeModel(config.gemini_model)
+
+                # 準備內容
+                content_parts = []
+
+                if context_mode and context_texts:
+                    context = "\n\n".join(context_texts[:3])
+                    if user_message:
+                        prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n\n用戶問題：{user_message}\n\n請根據上述文檔內容回答問題。"
+                    else:
+                        prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n\n請分析用戶提供的圖片，並結合文檔內容進行說明。"
+                else:
+                    if user_message:
+                        prompt = f"{config.system_prompt}\n\n用戶問題：{user_message}\n\n請直接回答問題。"
+                    else:
+                        prompt = f"{config.system_prompt}\n\n請分析用戶提供的圖片。"
+
+                content_parts.append(prompt)
+
+                # 添加圖片
+                if image_ids:
+                    images = ImageAttachment.objects.filter(id__in=image_ids)
+                    for image in images:
+                        if image.file_exists:
+                            with open(image.file_path, 'rb') as f:
+                                image_data = f.read()
+                            content_parts.append({
+                                "mime_type": image.mime_type,
+                                "data": image_data
+                            })
+
+                # 發送用戶消息資訊
+                yield f"data: {json.dumps({'type': 'user_message', 'message': MessageSerializer(user_msg).data})}\n\n"
+
+                # 發送citations
+                if citations:
+                    yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
+
+                # 使用 Gemini streaming
+                response = model.generate_content(content_parts, stream=True)
+
+                full_content = ""
+                for chunk in response:
+                    if chunk.text:
+                        full_content += chunk.text
+                        yield f"data: {json.dumps({'type': 'content', 'content': chunk.text})}\n\n"
+                        time.sleep(0.01)  # 避免太快
+
+                # 保存完整的AI回答
+                ai_msg = Message.objects.create(
+                    conversation=conversation,
+                    role='assistant',
+                    content=full_content,
+                    raw_sources=citations
+                )
+
+                # 發送完成信號和AI消息ID
+                yield f"data: {json.dumps({'type': 'complete', 'message_id': str(ai_msg.id), 'message': MessageSerializer(ai_msg).data})}\n\n"
+
+            except Exception as e:
+                print(f"Streaming error: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'error': f'生成回答時發生錯誤: {str(e)}'})}\n\n"
+
+        response = StreamingHttpResponse(
+            generate_streaming_response(),
+            content_type='text/plain; charset=utf-8'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
+
     except Exception as e:
         return Response({
             'error': f'處理消息時發生錯誤: {str(e)}'

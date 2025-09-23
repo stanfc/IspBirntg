@@ -202,6 +202,94 @@ export const conversationApi = {
     });
   },
 
+  // 發送消息並獲取串流回答
+  async sendMessageStream(
+    conversationId: string,
+    message: string,
+    imageIds?: string[],
+    contextMode?: boolean,
+    onMessage?: (data: any) => void,
+    onError?: (error: string) => void,
+    onComplete?: () => void
+  ): Promise<void> {
+    const url = `${API_BASE_URL}/conversations/${conversationId}/chat/stream/`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message,
+          image_ids: imageIds,
+          context_mode: contextMode !== undefined ? contextMode : true
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('無法讀取回應流');
+      }
+
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // 處理可能的多條消息
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // 保留最後不完整的行
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const jsonStr = trimmed.slice(6); // 移除 'data: ' 前綴
+                const data = JSON.parse(jsonStr);
+
+                if (data.error && onError) {
+                  onError(data.error);
+                  return;
+                }
+
+                if (onMessage) {
+                  onMessage(data);
+                }
+
+                if (data.type === 'complete' && onComplete) {
+                  onComplete();
+                }
+              } catch (parseError) {
+                console.error('解析串流數據錯誤:', parseError, 'Line:', trimmed);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+    } catch (error) {
+      console.error('串流請求錯誤:', error);
+      if (onError) {
+        onError(error instanceof Error ? error.message : '發送消息時發生錯誤');
+      }
+    }
+  },
+
   // 獲取對話消息
   async getMessages(conversationId: string): Promise<{
     conversation_id: string;
