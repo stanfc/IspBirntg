@@ -1,10 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { conversationApi } from '../../services/api';
-import StreamingMessageContent from './StreamingMessageContent';
+import MessageItem from './MessageItem';
 import './ChatPanel.css';
 
 interface Message {
@@ -44,14 +44,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [contextMode, setContextMode] = useState<boolean>(true);
 
-  const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
+  const scrollToBottom = useCallback((behavior: 'smooth' | 'auto' = 'smooth') => {
     if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTo({
-        top: messagesContainerRef.current.scrollHeight,
-        behavior: behavior,
+      // 使用 requestAnimationFrame 優化滾動效能
+      requestAnimationFrame(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTo({
+            top: messagesContainerRef.current.scrollHeight,
+            behavior: behavior,
+          });
+        }
       });
     }
-  };
+  }, []);
 
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
@@ -219,20 +224,27 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
     }
   };
 
-  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputText(e.target.value);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  };
+  const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setInputText(value);
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+    // 使用 requestAnimationFrame 來優化高頻DOM操作
+    if (textareaRef.current) {
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+          textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+      });
+    }
+  }, []);
+
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e as any);
     }
-  };
+  }, []);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -251,22 +263,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
     e.target.value = '';
   };
 
-  const removeImage = (imageId: string) => {
+  const removeImage = useCallback((imageId: string) => {
     setUploadedImages(prev => prev.filter(img => img.id !== imageId));
-  };
+  }, []);
 
-  const toggleCitations = (messageId: string) => {
+  const toggleCitations = useCallback((messageId: string) => {
     setExpandedCitations(prev => ({ ...prev, [messageId]: !prev[messageId] }));
-  };
+  }, []);
 
-  const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
-  };
 
-  const handleCitationClickFromSource = (citation: Citation) => {
+  const handleCitationClickFromSource = useCallback((citation: Citation) => {
     if (onCitationClick) onCitationClick(citation.page_number);
-  };
+  }, [onCitationClick]);
 
   const handleResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -328,50 +336,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
       </div>
       <div ref={messagesContainerRef} className="messages-container">
         {messages.map((message) => (
-          <div key={message.id} className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}>
-            <div className="message-avatar">{message.role === 'user' ? '👤' : '🤖'}</div>
-            <div className="message-content">
-              {message.images && message.images.length > 0 && (
-                <div className="message-images">
-                  {message.images.map((image) => (
-                    <div key={image.id} className="message-image">
-                      <img src={`http://localhost:8080/api/conversations/images/${image.id}/`} alt={image.filename} className="message-image-content" />
-                      <span className="image-caption">{image.filename}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="message-text">
-                {message.id === streamingId ? (
-                  <StreamingMessageContent content={message.content} />
-                ) : (
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{message.content}</ReactMarkdown>
-                )}
-              </div>
-              {message.raw_sources && message.raw_sources.length > 0 && (
-                <div className="citations">
-                  <div className="citations-toggle" onClick={() => toggleCitations(message.id)}>
-                    <span className="toggle-icon">{expandedCitations[message.id] ? '▼' : '▶'}</span>
-                    <span>引用來源 ({message.raw_sources.length})</span>
-                  </div>
-                  {expandedCitations[message.id] && (
-                    <div className="citations-content">
-                      {message.raw_sources.map((citation, index) => (
-                        <div key={index} className="citation" onClick={() => handleCitationClickFromSource(citation)}>
-                          <div className="citation-header">
-                            <span className="citation-icon">📄</span>
-                            <span className="citation-source">{citation.pdf_name} - 第 {citation.page_number} 頁</span>
-                          </div>
-                          <div className="citation-text">"{citation.text_content}"</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="message-timestamp">{formatTimestamp(message.timestamp)}</div>
-            </div>
-          </div>
+          <MessageItem
+            key={message.id}
+            message={message}
+            isStreaming={message.id === streamingId}
+            isExpanded={expandedCitations[message.id] || false}
+            onToggleCitations={toggleCitations}
+            onCitationClick={handleCitationClickFromSource}
+          />
         ))}
         {isThinking && (
           <div className="message assistant-message">

@@ -14,6 +14,11 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       'import.meta.env.VITE_BACKEND_PORT': JSON.stringify(env.BACKEND_PORT || '8080'),
+    },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: [],
     }
   }
 })
