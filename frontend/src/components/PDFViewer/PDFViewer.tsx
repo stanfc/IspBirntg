@@ -1,5 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import { marked } from 'marked';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import './PDFViewer.css';
 import { readingStateApi, annotationApi } from '../../services/api';
@@ -7,6 +10,70 @@ import type { PDFAnnotation } from '../../services/api';
 
 // 設置 PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.5.3.93.min.mjs';
+
+// 自定義渲染函數來支持 LaTeX 公式
+const renderMarkdownWithKaTeX = (text: string): string => {
+  const formulaMap: Map<string, string> = new Map();
+  let formulaCounter = 0;
+
+  let result = text;
+
+  // 處理塊級公式 $$...$$
+  result = result.replace(/\$\$([^$]*?)\$\$/g, (match, formula) => {
+    try {
+      const katexHtml = katex.renderToString(formula.trim(), {
+        throwOnError: false,
+        displayMode: true,
+      });
+      // 使用不含特殊字符的 UUID，避免被 Markdown 轉義
+      const uuid = `xKATEXBLOCKx${formulaCounter}x`;
+      formulaMap.set(uuid, `<div class="katex-display-wrapper">${katexHtml}</div>`);
+      formulaCounter++;
+      return uuid;
+    } catch (e) {
+      console.error('KaTeX render error:', e);
+      return match;
+    }
+  });
+
+  // 處理行內公式 $...$
+  result = result.replace(/\$([^$]*?)\$/g, (match, formula) => {
+    try {
+      const katexHtml = katex.renderToString(formula.trim(), {
+        throwOnError: false,
+        displayMode: false,
+      });
+      // 使用不含特殊字符的 UUID，避免被 Markdown 轉義
+      const uuid = `xKATEXINLINEx${formulaCounter}x`;
+      formulaMap.set(uuid, katexHtml);
+      formulaCounter++;
+      return uuid;
+    } catch (e) {
+      console.error('KaTeX render error:', e);
+      return match;
+    }
+  });
+
+  // 使用 marked 處理 Markdown
+  result = marked(result);
+
+  // 將所有占位符替換回實際的 KaTeX HTML
+  formulaMap.forEach((html, uuid) => {
+    result = result.replace(new RegExp(uuid, 'g'), html);
+    // 如果占位符被包裹在 <p> 中
+    result = result.replace(new RegExp(`<p>${uuid}</p>`, 'g'), html);
+    result = result.replace(new RegExp(`<p>${uuid}<br></p>`, 'g'), html);
+    result = result.replace(new RegExp(`<p>${uuid}<br />`, 'g'), html);
+  });
+
+  return result;
+};
+
+// 配置 marked 选项
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
 
 interface PDFViewerProps {
   pdfUrl: string | null;
@@ -32,6 +99,9 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
   const [scrollPosition, setScrollPosition] = useState(0);
   const pdfContentRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const editingTextBoxRef = useRef<HTMLTextAreaElement | null>(null);
+  const textBoxClickTimeRef = useRef<{id: string, time: number} | null>(null);
+  const textBoxLongPressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // 注释相关
   const [annotations, setAnnotations] = useState<PDFAnnotation[]>([]);
@@ -41,6 +111,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
   const [annotationStart, setAnnotationStart] = useState<{x: number, y: number, pageNumber: number} | null>(null);
   const [annotationEnd, setAnnotationEnd] = useState<{x: number, y: number} | null>(null);
   const [draggingAnnotation, setDraggingAnnotation] = useState<{id: string, startX: number, startY: number} | null>(null);
+  const [editingTextBox, setEditingTextBox] = useState<string | null>(null); // 正在編輯的文字框 ID
+  const [resizingTextBox, setResizingTextBox] = useState<{id: string, corner: string, startX: number, startY: number} | null>(null);
 
   // 加载阅读状态
   const loadReadingState = useCallback(async () => {
@@ -240,8 +312,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
     height: number,
     color?: string,
     textContent?: string
-  ) => {
-    if (!conversationId || !pdfId) return;
+  ): Promise<PDFAnnotation | null> => {
+    if (!conversationId || !pdfId) return null;
 
     try {
       const newAnnotation = await annotationApi.createAnnotation(conversationId, pdfId, {
@@ -257,8 +329,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
 
       setAnnotations(prev => [...prev, newAnnotation]);
       console.log('Annotation created:', newAnnotation);
+      return newAnnotation;
     } catch (error) {
       console.error('Failed to create annotation:', error);
+      return null;
     }
   }, [conversationId, pdfId]);
 
@@ -288,9 +362,185 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
     }
   }, []);
 
+  // 更新文字框内容
+  const updateTextBoxContent = useCallback(async (
+    annotationId: string,
+    textContent: string
+  ) => {
+    try {
+      const updated = await annotationApi.updateAnnotation(annotationId, { text_content: textContent });
+      setAnnotations(prev => prev.map(ann => ann.id === annotationId ? updated : ann));
+      console.log('Text box content updated:', updated);
+    } catch (error) {
+      console.error('Failed to update text box content:', error);
+    }
+  }, []);
+
+  // 更新文字框大小
+  const updateTextBoxSize = useCallback(async (
+    annotationId: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ) => {
+    try {
+      const updated = await annotationApi.updateAnnotation(annotationId, { x, y, width, height });
+      setAnnotations(prev => prev.map(ann => ann.id === annotationId ? updated : ann));
+      console.log('Text box size updated:', updated);
+    } catch (error) {
+      console.error('Failed to update text box size:', error);
+    }
+  }, []);
+
+  // 处理调整大小开始
+  const handleResizeStart = useCallback((e: React.MouseEvent, annotationId: string, corner: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizingTextBox({
+      id: annotationId,
+      corner,
+      startX: e.clientX,
+      startY: e.clientY,
+    });
+  }, []);
+
+  // 处理调整大小移动
+  const handleResizeMove = useCallback((e: React.MouseEvent) => {
+    if (!resizingTextBox) return;
+    e.preventDefault();
+
+    const annotation = annotations.find(ann => ann.id === resizingTextBox.id);
+    if (!annotation) return;
+
+    // 找到对应的页面元素
+    const allPageWrappers = document.querySelectorAll('.pdf-page-wrapper');
+    let targetPageElement: HTMLElement | null = null;
+
+    for (const wrapper of allPageWrappers) {
+      const pageElement = wrapper.querySelector('.react-pdf__Page') as HTMLElement;
+      if (pageElement && pageElement.getAttribute('data-page-number') === String(annotation.page_number)) {
+        targetPageElement = pageElement;
+        break;
+      }
+    }
+
+    if (!targetPageElement) return;
+
+    const pageRect = targetPageElement.getBoundingClientRect();
+
+    // 计算移动的像素距离
+    const deltaX = e.clientX - resizingTextBox.startX;
+    const deltaY = e.clientY - resizingTextBox.startY;
+
+    // 转换为百分比
+    const deltaXPercent = (deltaX / pageRect.width) * 100;
+    const deltaYPercent = (deltaY / pageRect.height) * 100;
+
+    // 根据不同的角进行调整
+    setAnnotations(prev => prev.map(ann => {
+      if (ann.id === resizingTextBox.id) {
+        let newX = ann.x;
+        let newY = ann.y;
+        let newWidth = ann.width;
+        let newHeight = ann.height;
+
+        switch (resizingTextBox.corner) {
+          case 'se': // 右下角
+            newWidth = Math.max(5, ann.width + deltaXPercent);
+            newHeight = Math.max(5, ann.height + deltaYPercent);
+            break;
+          case 'sw': // 左下角
+            newX = Math.max(0, ann.x + deltaXPercent);
+            newWidth = Math.max(5, ann.width - deltaXPercent);
+            newHeight = Math.max(5, ann.height + deltaYPercent);
+            break;
+          case 'ne': // 右上角
+            newY = Math.max(0, ann.y + deltaYPercent);
+            newWidth = Math.max(5, ann.width + deltaXPercent);
+            newHeight = Math.max(5, ann.height - deltaYPercent);
+            break;
+          case 'nw': // 左上角
+            newX = Math.max(0, ann.x + deltaXPercent);
+            newY = Math.max(0, ann.y + deltaYPercent);
+            newWidth = Math.max(5, ann.width - deltaXPercent);
+            newHeight = Math.max(5, ann.height - deltaYPercent);
+            break;
+        }
+
+        // 确保不超出边界
+        if (newX + newWidth > 100) newWidth = 100 - newX;
+        if (newY + newHeight > 100) newHeight = 100 - newY;
+
+        return { ...ann, x: newX, y: newY, width: newWidth, height: newHeight };
+      }
+      return ann;
+    }));
+
+    // 更新起始位置
+    setResizingTextBox({
+      ...resizingTextBox,
+      startX: e.clientX,
+      startY: e.clientY,
+    });
+  }, [resizingTextBox, annotations]);
+
+  // 处理调整大小结束
+  const handleResizeEnd = useCallback(() => {
+    if (resizingTextBox) {
+      const annotation = annotations.find(ann => ann.id === resizingTextBox.id);
+      if (annotation) {
+        updateTextBoxSize(annotation.id, annotation.x, annotation.y, annotation.width, annotation.height);
+      }
+      setResizingTextBox(null);
+    }
+  }, [resizingTextBox, annotations, updateTextBoxSize]);
+
   // 处理注释拖移开始
   const handleAnnotationMouseDown = useCallback((e: React.MouseEvent, annotationId: string) => {
     if (annotationMode !== 'none') return;
+
+    // 如果點擊在 textarea 內，不進行任何操作
+    const clickedInTextarea = (e.target as HTMLElement).closest('textarea');
+    if (clickedInTextarea) return;
+
+    const annotation = annotations.find(ann => ann.id === annotationId);
+
+    // 如果是文字框
+    if (annotation?.annotation_type === 'text') {
+      // 如果正在編輯，不處理拖移（在編輯模式下只能通過 resize 把手調整大小）
+      if (editingTextBox === annotationId) {
+        return;
+      }
+
+      // 如果不在編輯模式，檢查是否長按
+      e.stopPropagation();
+
+      // 記錄點擊時間，設定長按超時（300ms 後視為長按）
+      const now = Date.now();
+      textBoxClickTimeRef.current = { id: annotationId, time: now };
+
+      // 設定長按計時器
+      if (textBoxLongPressTimeoutRef.current) {
+        clearTimeout(textBoxLongPressTimeoutRef.current);
+      }
+
+      textBoxLongPressTimeoutRef.current = setTimeout(() => {
+        // 如果 300ms 後還沒有鬆開，視為長按，進入拖動模式
+        if (textBoxClickTimeRef.current?.id === annotationId) {
+          e.preventDefault();
+          setDraggingAnnotation({
+            id: annotationId,
+            startX: e.clientX,
+            startY: e.clientY,
+          });
+        }
+      }, 300);
+
+      return;
+    }
+
+    // 其他類型的注釋，直接拖動
     e.preventDefault();
     e.stopPropagation();
     setDraggingAnnotation({
@@ -298,10 +548,16 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
       startX: e.clientX,
       startY: e.clientY,
     });
-  }, [annotationMode]);
+  }, [annotationMode, annotations, editingTextBox]);
 
   // 处理注释拖移（在整个文档容器上监听）
   const handleDocumentMouseMove = useCallback((e: React.MouseEvent) => {
+    // 处理调整大小
+    if (resizingTextBox) {
+      handleResizeMove(e);
+      return;
+    }
+
     if (!draggingAnnotation) return;
     e.preventDefault();
 
@@ -350,10 +606,16 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
       startX: e.clientX,
       startY: e.clientY,
     });
-  }, [draggingAnnotation, annotations]);
+  }, [draggingAnnotation, annotations, resizingTextBox, handleResizeMove]);
 
   // 处理注释拖移结束
   const handleAnnotationMouseUp = useCallback(() => {
+    // 处理调整大小结束
+    if (resizingTextBox) {
+      handleResizeEnd();
+      return;
+    }
+
     if (draggingAnnotation) {
       const annotation = annotations.find(ann => ann.id === draggingAnnotation.id);
       if (annotation) {
@@ -361,10 +623,36 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
       }
       setDraggingAnnotation(null);
     }
-  }, [draggingAnnotation, annotations, updateAnnotationPosition]);
+  }, [draggingAnnotation, annotations, updateAnnotationPosition, resizingTextBox, handleResizeEnd]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
+    const clickedInTextarea = target.closest('textarea');
+    const clickedOnAnnotation = target.closest('[data-annotation-id]');
+    const clickedAnnotationId = clickedOnAnnotation?.getAttribute('data-annotation-id');
+
+    // 如果點擊在 textarea 內，不進行任何操作
+    if (clickedInTextarea) {
+      return;
+    }
+
+    // 檢查是否點擊在編輯中的文字框外面，如果是則讓 textarea 失去焦點（會觸發 onBlur 自動保存）
+    if (editingTextBox && editingTextBoxRef.current) {
+      // 如果點擊的不是正在編輯的文字框
+      if (clickedAnnotationId !== editingTextBox) {
+        // 讓 textarea 失去焦點（會觸發 onBlur 自動保存）
+        editingTextBoxRef.current.blur();
+        // 不直接設置 editingTextBox 為 null，讓 onBlur 事件處理
+
+        // 如果點擊的不是任何文字框，才阻止事件
+        if (!clickedOnAnnotation || !target.closest('.pdf-annotation.text')) {
+          // 這是背景點擊，阻止進一步處理
+          return;
+        }
+        // 如果是點擊另一個文字框，允許 onClick 事件執行
+        return;
+      }
+    }
 
     // 如果在注释模式下，处理注释创建
     if (annotationMode !== 'none') {
@@ -498,18 +786,20 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
           } else if (annotationMode === 'text') {
             // 文字方块需要最小高度
             if (height > 1) {
-              const textContent = prompt('请输入文字方块的内容：');
-              if (textContent) {
-                await createAnnotation(
-                  'text',
-                  annotationStart.pageNumber,
-                  startX,
-                  startY,
-                  width,
-                  height,
-                  undefined,
-                  textContent
-                );
+              // 創建空的文字框並立即進入編輯模式
+              const newAnnotation = await createAnnotation(
+                'text',
+                annotationStart.pageNumber,
+                startX,
+                startY,
+                width,
+                height,
+                undefined,
+                '' // 初始為空
+              );
+
+              if (newAnnotation) {
+                setEditingTextBox(newAnnotation.id);
               }
             }
           }
@@ -745,60 +1035,212 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                     />
 
                     {/* 渲染注释覆盖层 */}
-                    {pageAnnotations.map(annotation => (
-                      <div
-                        key={annotation.id}
-                        className={`pdf-annotation ${annotation.annotation_type}`}
-                        style={{
-                          position: 'absolute',
-                          left: `${annotation.x}%`,
-                          top: `${annotation.y}%`,
-                          width: `${annotation.width}%`,
-                          height: `${annotation.height}%`,
-                          backgroundColor: annotation.annotation_type === 'highlight'
-                            ? (annotation.color === 'yellow' ? 'rgba(255, 255, 0, 0.4)' :
-                               annotation.color === 'green' ? 'rgba(0, 255, 0, 0.4)' :
-                               annotation.color === 'blue' ? 'rgba(0, 191, 255, 0.4)' :
-                               annotation.color === 'pink' ? 'rgba(255, 192, 203, 0.5)' :
-                               'rgba(255, 255, 0, 0.4)')
-                            : 'transparent',
-                          border: annotation.annotation_type === 'text'
-                            ? '2px solid #3498db'
-                            : 'none',
-                          pointerEvents: 'auto',
-                          cursor: annotationMode === 'none' ? 'move' : 'pointer',
-                          zIndex: 10,
-                        }}
-                        title={annotation.annotation_type === 'text' ? annotation.text_content : '拖移或右键删除'}
-                        onMouseDown={(e) => handleAnnotationMouseDown(e, annotation.id)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (window.confirm('确定要删除这个注释吗？')) {
-                            deleteAnnotation(annotation.id);
-                          }
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                        }}
-                      >
-                        {annotation.annotation_type === 'text' && annotation.text_content && (
-                          <div className="text-annotation-content" style={{
-                            padding: '3px',
-                            fontSize: '10px',
-                            color: '#2c3e50',
-                            backgroundColor: '#ecf0f1',
-                            borderRadius: '2px',
-                            overflow: 'auto',
-                            maxHeight: '100%',
-                            lineHeight: '1.3',
-                            pointerEvents: 'none',
-                          }}>
-                            {annotation.text_content}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                    {pageAnnotations.map(annotation => {
+                      const isEditing = editingTextBox === annotation.id;
+                      const isTextBox = annotation.annotation_type === 'text';
+
+                      return (
+                        <div
+                          key={annotation.id}
+                          data-annotation-id={annotation.id}
+                          className={`pdf-annotation ${annotation.annotation_type}`}
+                          style={{
+                            position: 'absolute',
+                            left: `${annotation.x}%`,
+                            top: `${annotation.y}%`,
+                            width: `${annotation.width}%`,
+                            height: `${annotation.height}%`,
+                            backgroundColor: annotation.annotation_type === 'highlight'
+                              ? (annotation.color === 'yellow' ? 'rgba(255, 255, 0, 0.4)' :
+                                 annotation.color === 'green' ? 'rgba(0, 255, 0, 0.4)' :
+                                 annotation.color === 'blue' ? 'rgba(0, 191, 255, 0.4)' :
+                                 annotation.color === 'pink' ? 'rgba(255, 192, 203, 0.5)' :
+                                 'rgba(255, 255, 0, 0.4)')
+                              : 'transparent',
+                            border: isTextBox
+                              ? (isEditing ? '2px solid #2980b9' : '2px solid #3498db')
+                              : 'none',
+                            pointerEvents: 'auto',
+                            cursor: annotationMode === 'none' ? (isEditing ? 'default' : 'move') : 'pointer',
+                            zIndex: isEditing ? 20 : 10,
+                          }}
+                          title={isTextBox ? annotation.text_content : '拖移或右键删除'}
+                          onMouseDown={(e) => handleAnnotationMouseDown(e, annotation.id)}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (window.confirm('确定要删除这个注释吗？')) {
+                              deleteAnnotation(annotation.id);
+                            }
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // 快速點擊文字框進入編輯模式
+                            if (isTextBox && !isEditing) {
+                              // 檢查是否是快速點擊（小於 300ms）
+                              if (textBoxClickTimeRef.current?.id === annotation.id) {
+                                const clickDuration = Date.now() - textBoxClickTimeRef.current.time;
+                                if (clickDuration < 300) {
+                                  // 快速點擊，進入編輯模式
+                                  setEditingTextBox(annotation.id);
+                                  // 如果還在注釋模式，關閉它
+                                  if (annotationMode !== 'none') {
+                                    setAnnotationMode('none');
+                                  }
+                                  // 清除長按計時器
+                                  if (textBoxLongPressTimeoutRef.current) {
+                                    clearTimeout(textBoxLongPressTimeoutRef.current);
+                                    textBoxLongPressTimeoutRef.current = null;
+                                  }
+                                }
+                              }
+                              textBoxClickTimeRef.current = null;
+                            }
+                          }}
+                        >
+                          {isTextBox && (
+                            <>
+                              {isEditing ? (
+                                // 編輯模式：顯示可編輯的 textarea
+                                <textarea
+                                  key={`textarea-${annotation.id}`}
+                                  ref={editingTextBoxRef}
+                                  autoFocus
+                                  defaultValue={annotation.text_content || ''}
+                                  onBlur={(e) => {
+                                    // 失去焦點時保存並退出編輯模式
+                                    const newContent = e.target.value;
+                                    updateTextBoxContent(annotation.id, newContent);
+                                    setEditingTextBox(null);
+                                    editingTextBoxRef.current = null;
+                                  }}
+                                  onKeyDown={(e) => {
+                                    // 按 Escape 退出編輯
+                                    if (e.key === 'Escape') {
+                                      e.currentTarget.blur();
+                                    }
+                                    // 阻止事件冒泡，避免觸發其他操作
+                                    e.stopPropagation();
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    padding: '4px',
+                                    fontSize: '12px',
+                                    border: 'none',
+                                    outline: 'none',
+                                    resize: 'none',
+                                    backgroundColor: 'rgba(236, 240, 241, 0.95)',
+                                    color: '#2c3e50',
+                                    fontFamily: 'inherit',
+                                    lineHeight: '1.4',
+                                    boxSizing: 'border-box',
+                                  }}
+                                />
+                              ) : (
+                                // 顯示模式：顯示 Markdown 渲染後的文字內容
+                                <div className="text-annotation-content" style={{
+                                  padding: '4px',
+                                  fontSize: '12px',
+                                  color: '#2c3e50',
+                                  backgroundColor: '#ecf0f1',
+                                  borderRadius: '2px',
+                                  overflow: 'auto',
+                                  width: '100%',
+                                  height: '100%',
+                                  lineHeight: '1.4',
+                                  boxSizing: 'border-box',
+                                  cursor: 'pointer',
+                                }}>
+                                  {annotation.text_content ? (
+                                    <div
+                                      className="markdown-content"
+                                      dangerouslySetInnerHTML={{
+                                        __html: renderMarkdownWithKaTeX(annotation.text_content),
+                                      }}
+                                      style={{
+                                        whiteSpace: 'normal',
+                                        wordBreak: 'break-word',
+                                      }}
+                                    />
+                                  ) : (
+                                    <span>點擊編輯</span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* 調整大小的控制點（在編輯模式或非編輯模式下都顯示） */}
+                              <>
+                                {/* 四個角的調整點 */}
+                                <div
+                                  onMouseDown={(e) => handleResizeStart(e, annotation.id, 'nw')}
+                                  style={{
+                                    position: 'absolute',
+                                    left: '-4px',
+                                    top: '-4px',
+                                    width: '8px',
+                                    height: '8px',
+                                    backgroundColor: isEditing ? '#2980b9' : '#95a5a6',
+                                    border: '1px solid white',
+                                    cursor: 'nw-resize',
+                                    zIndex: 30,
+                                    opacity: isEditing ? 1 : 0.5,
+                                  }}
+                                />
+                                <div
+                                  onMouseDown={(e) => handleResizeStart(e, annotation.id, 'ne')}
+                                  style={{
+                                    position: 'absolute',
+                                    right: '-4px',
+                                    top: '-4px',
+                                    width: '8px',
+                                    height: '8px',
+                                    backgroundColor: isEditing ? '#2980b9' : '#95a5a6',
+                                    border: '1px solid white',
+                                    cursor: 'ne-resize',
+                                    zIndex: 30,
+                                    opacity: isEditing ? 1 : 0.5,
+                                  }}
+                                />
+                                <div
+                                  onMouseDown={(e) => handleResizeStart(e, annotation.id, 'sw')}
+                                  style={{
+                                    position: 'absolute',
+                                    left: '-4px',
+                                    bottom: '-4px',
+                                    width: '8px',
+                                    height: '8px',
+                                    backgroundColor: isEditing ? '#2980b9' : '#95a5a6',
+                                    border: '1px solid white',
+                                    cursor: 'sw-resize',
+                                    zIndex: 30,
+                                    opacity: isEditing ? 1 : 0.5,
+                                  }}
+                                />
+                                <div
+                                  onMouseDown={(e) => handleResizeStart(e, annotation.id, 'se')}
+                                  style={{
+                                    position: 'absolute',
+                                    right: '-4px',
+                                    bottom: '-4px',
+                                    width: '8px',
+                                    height: '8px',
+                                    backgroundColor: isEditing ? '#2980b9' : '#95a5a6',
+                                    border: '1px solid white',
+                                    cursor: 'se-resize',
+                                    zIndex: 30,
+                                    opacity: isEditing ? 1 : 0.5,
+                                  }}
+                                />
+                              </>
+
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
 
                     {/* 渲染当前页面的注释创建预览框 */}
                     {isCreatingAnnotation && annotationStart && annotationEnd && annotationStart.pageNumber === pageNumber && (() => {

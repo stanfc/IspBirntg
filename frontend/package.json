@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "html2canvas": "^1.4.1",
-    "katex": "^0.16.22",
+    "katex": "^0.16.25",
+    "marked": "^16.4.1",
+    "marked-katex": "^0.3.8",
     "pdfjs-dist": "^5.4.149",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
