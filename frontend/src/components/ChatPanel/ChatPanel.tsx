@@ -89,6 +89,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
     }
   }, [externalText, onExternalTextUsed]);
 
+  // 當 inputText 改變時調整 textarea 高度
+  useEffect(() => {
+    if (textareaRef.current && inputText) {
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+          textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+      });
+    }
+  }, [inputText]);
+
   useEffect(() => {
     if (externalImages && externalImages.length > 0) {
       const images = externalImages.map(id => ({ id, filename: 'screenshot.png', file: null }));
@@ -244,7 +256,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
       e.preventDefault();
       handleSubmit(e as any);
     }
-  }, []);
+  }, [inputText, uploadedImages, isLoading, conversationId, contextMode]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

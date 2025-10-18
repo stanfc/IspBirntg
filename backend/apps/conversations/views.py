@@ -7,8 +7,8 @@ from django.http import StreamingHttpResponse
 import json
 import time
 
-from .models import Folder, Conversation, Message, ImageAttachment
-from .serializers import FolderSerializer, ConversationSerializer, MessageSerializer
+from .models import Folder, Conversation, Message, ImageAttachment, PDFAnnotation, PDFReadingState
+from .serializers import FolderSerializer, ConversationSerializer, MessageSerializer, PDFAnnotationSerializer, PDFReadingStateSerializer
 from apps.rag.services import RAGService
 from apps.pdfs.models import PDFDocument
 
@@ -338,20 +338,33 @@ def chat_with_pdfs_stream(request, conversation_id):
                 genai.configure(api_key=config.gemini_api_key)
                 model = genai.GenerativeModel(config.gemini_model)
 
+                # 獲取對話歷史（最近10條消息）
+                previous_messages = conversation.messages.exclude(id=user_msg.id).order_by('-timestamp')[:10]
+                previous_messages = list(reversed(previous_messages))  # 按時間順序排列
+
+                # 構建對話歷史字符串
+                history_text = ""
+                if previous_messages:
+                    history_text = "\n\n對話歷史：\n"
+                    for msg in previous_messages:
+                        role = "用戶" if msg.role == "user" else "助手"
+                        history_text += f"{role}: {msg.content}\n"
+                    history_text += "\n"
+
                 # 準備內容
                 content_parts = []
 
                 if context_mode and context_texts:
                     context = "\n\n".join(context_texts[:3])
                     if user_message:
-                        prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n\n用戶問題：{user_message}\n\n請根據上述文檔內容回答問題。"
+                        prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n{history_text}用戶問題：{user_message}\n\n請根據上述文檔內容和對話歷史回答問題。"
                     else:
-                        prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n\n請分析用戶提供的圖片，並結合文檔內容進行說明。"
+                        prompt = f"{config.system_prompt}\n\n相關文檔內容：\n{context}\n{history_text}請分析用戶提供的圖片，並結合文檔內容和對話歷史進行說明。"
                 else:
                     if user_message:
-                        prompt = f"{config.system_prompt}\n\n用戶問題：{user_message}\n\n請直接回答問題。"
+                        prompt = f"{config.system_prompt}\n{history_text}用戶問題：{user_message}\n\n請根據對話歷史回答問題。"
                     else:
-                        prompt = f"{config.system_prompt}\n\n請分析用戶提供的圖片。"
+                        prompt = f"{config.system_prompt}\n{history_text}請分析用戶提供的圖片。"
 
                 content_parts.append(prompt)
 

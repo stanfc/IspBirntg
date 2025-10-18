@@ -388,9 +388,115 @@ export const folderApi = {
   },
 };
 
+// PDF 注释相关的类型定义
+export interface PDFAnnotation {
+  id: string;
+  conversation: string;
+  pdf_document: string;
+  annotation_type: 'highlight' | 'text';
+  page_number: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color?: string;
+  text_content?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// PDF 阅读状态相关的类型定义
+export interface PDFReadingState {
+  id: string;
+  conversation: string;
+  pdf_document: string;
+  current_page: number;
+  scroll_position: number;
+  zoom_level: number;
+  last_read_at: string;
+  created_at: string;
+}
+
+// PDF 注释相关 API
+export const annotationApi = {
+  // 获取PDF的所有注释
+  async getAnnotations(conversationId: string, pdfId: string): Promise<PDFAnnotation[]> {
+    return apiRequest<PDFAnnotation[]>(`/conversations/${conversationId}/pdfs/${pdfId}/annotations/`);
+  },
+
+  // 创建新注释
+  async createAnnotation(
+    conversationId: string,
+    pdfId: string,
+    annotation: {
+      annotation_type: 'highlight' | 'text';
+      page_number: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      color?: string;
+      text_content?: string;
+    }
+  ): Promise<PDFAnnotation> {
+    return apiRequest<PDFAnnotation>(`/conversations/${conversationId}/pdfs/${pdfId}/annotations/create/`, {
+      method: 'POST',
+      body: JSON.stringify(annotation),
+    });
+  },
+
+  // 更新注释
+  async updateAnnotation(
+    annotationId: string,
+    updates: Partial<Pick<PDFAnnotation, 'x' | 'y' | 'width' | 'height' | 'color' | 'text_content'>>
+  ): Promise<PDFAnnotation> {
+    return apiRequest<PDFAnnotation>(`/conversations/annotations/${annotationId}/`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  // 删除注释
+  async deleteAnnotation(annotationId: string): Promise<void> {
+    return apiRequest(`/conversations/annotations/${annotationId}/delete/`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// PDF 阅读状态相关 API
+export const readingStateApi = {
+  // 获取阅读状态
+  async getReadingState(conversationId: string, pdfId: string): Promise<{
+    current_page: number;
+    scroll_position: number;
+    zoom_level: number;
+  }> {
+    return apiRequest(`/conversations/${conversationId}/pdfs/${pdfId}/reading-state/`);
+  },
+
+  // 保存阅读状态
+  async saveReadingState(
+    conversationId: string,
+    pdfId: string,
+    state: {
+      current_page: number;
+      scroll_position: number;
+      zoom_level: number;
+    }
+  ): Promise<PDFReadingState> {
+    return apiRequest<PDFReadingState>(`/conversations/${conversationId}/pdfs/${pdfId}/reading-state/save/`, {
+      method: 'POST',
+      body: JSON.stringify(state),
+    });
+  },
+};
+
 // 預設導出（可選）
 export default {
   pdfApi,
   conversationApi,
   folderApi,
+  annotationApi,
+  readingStateApi,
 };

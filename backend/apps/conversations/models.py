@@ -130,18 +130,18 @@ class ImageAttachment(models.Model):
 
 class Message(models.Model):
     ROLE_CHOICES = [('user', 'User'), ('assistant', 'Assistant')]
-    
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     conversation = models.ForeignKey(
-        Conversation, 
-        on_delete=models.CASCADE, 
+        Conversation,
+        on_delete=models.CASCADE,
         related_name='messages'
     )
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     content = models.TextField()
     citations = models.ManyToManyField(
-        Citation, 
-        blank=True, 
+        Citation,
+        blank=True,
         related_name='messages'
     )
     images = models.ManyToManyField(
@@ -150,11 +150,11 @@ class Message(models.Model):
         related_name='messages'
     )
     timestamp = models.DateTimeField(auto_now_add=True)
-    
+
     # 可選：保留簡單的 sources 欄位作為備用
     raw_sources = models.JSONField(
-        null=True, 
-        blank=True, 
+        null=True,
+        blank=True,
         help_text="原始引用資訊備份"
     )
 
@@ -164,3 +164,107 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.role}: {self.content[:50]}..."
+
+
+class PDFAnnotation(models.Model):
+    """PDF注释模型 - 支持高亮和文字方块"""
+    ANNOTATION_TYPE_CHOICES = [
+        ('highlight', '高亮'),
+        ('text', '文字方块'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name='pdf_annotations',
+        help_text="所属对话"
+    )
+    pdf_document = models.ForeignKey(
+        'pdfs.PDFDocument',
+        on_delete=models.CASCADE,
+        related_name='annotations',
+        help_text="所属PDF文档"
+    )
+    annotation_type = models.CharField(
+        max_length=20,
+        choices=ANNOTATION_TYPE_CHOICES,
+        help_text="注释类型"
+    )
+    page_number = models.IntegerField(help_text="页码")
+
+    # 位置信息 (相对于PDF页面的百分比坐标，0-100)
+    x = models.FloatField(help_text="X坐标百分比")
+    y = models.FloatField(help_text="Y坐标百分比")
+    width = models.FloatField(help_text="宽度百分比")
+    height = models.FloatField(help_text="高度百分比")
+
+    # 高亮专用字段
+    color = models.CharField(
+        max_length=20,
+        default='yellow',
+        help_text="高亮颜色"
+    )
+
+    # 文字方块专用字段
+    text_content = models.TextField(
+        null=True,
+        blank=True,
+        help_text="文字方块内容"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'pdf_annotations'
+        ordering = ['pdf_document', 'page_number', 'created_at']
+        indexes = [
+            models.Index(fields=['conversation', 'pdf_document']),
+            models.Index(fields=['page_number']),
+        ]
+
+    def __str__(self):
+        return f"{self.annotation_type} on {self.pdf_document.filename} - Page {self.page_number}"
+
+
+class PDFReadingState(models.Model):
+    """PDF阅读状态 - 记录每个对话中PDF的阅读进度"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name='pdf_reading_states',
+        help_text="所属对话"
+    )
+    pdf_document = models.ForeignKey(
+        'pdfs.PDFDocument',
+        on_delete=models.CASCADE,
+        related_name='reading_states',
+        help_text="所属PDF文档"
+    )
+
+    # 阅读位置
+    current_page = models.IntegerField(default=1, help_text="当前页码")
+    scroll_position = models.FloatField(
+        default=0,
+        help_text="滚动位置百分比"
+    )
+
+    # 视图状态
+    zoom_level = models.FloatField(default=1.0, help_text="缩放级别")
+
+    # 时间戳
+    last_read_at = models.DateTimeField(auto_now=True, help_text="最后阅读时间")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'pdf_reading_states'
+        unique_together = ['conversation', 'pdf_document']
+        ordering = ['-last_read_at']
+        indexes = [
+            models.Index(fields=['conversation', 'pdf_document']),
+        ]
+
+    def __str__(self):
+        return f"{self.conversation.title} - {self.pdf_document.filename} (Page {self.current_page})"

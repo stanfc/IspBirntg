@@ -42,7 +42,7 @@
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all 0.2s;
+  transition: background-color 0.2s;
 }
 
 .page-btn:hover:not(:disabled) {
@@ -95,7 +95,7 @@
   cursor: pointer;
   font-size: 0.9rem;
   min-width: 28px;
-  transition: all 0.2s;
+  transition: background-color 0.2s;
 }
 
 .zoom-btn:hover:not(:disabled) {
@@ -497,6 +497,76 @@
   background: #a8a8a8;
 }
 
+/* 注释控制 */
+.annotation-controls {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.annotation-mode-btn {
+  padding: 6px 12px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+  color: #495057;
+}
+
+.annotation-mode-btn:hover {
+  background-color: #e9ecef;
+}
+
+.annotation-mode-btn.active {
+  background-color: #3498db;
+  color: white;
+  border-color: #3498db;
+}
+
+/* PDF 注释样式 */
+.pdf-page-wrapper {
+  position: relative;
+  margin-bottom: 1px;
+  border-bottom: 1px solid #ddd;
+  display: inline-block;
+  width: auto;
+}
+
+.pdf-annotation {
+  transition: opacity 0.2s, box-shadow 0.2s;
+  user-select: none;
+}
+
+.pdf-annotation:hover {
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
+}
+
+.pdf-annotation.highlight {
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+.pdf-annotation.highlight:hover {
+  opacity: 0.7;
+}
+
+.pdf-annotation.text {
+  background-color: rgba(236, 240, 241, 0.9);
+}
+
+.text-annotation-content {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.annotation-preview-box {
+  opacity: 0.7;
+  will-change: auto;
+}
+
 /* 響應式設計 */
 @media (max-width: 768px) {
   .pdf-toolbar {
@@ -504,17 +574,22 @@
     gap: 0.5rem;
     padding: 0.5rem;
   }
-  
+
   .toolbar-left,
   .toolbar-center,
   .toolbar-right {
     justify-content: center;
   }
-  
+
+  .annotation-controls {
+    margin-left: 0 !important;
+    margin-top: 8px;
+  }
+
   .pdf-content {
     padding: 1rem 0.5rem;
   }
-  
+
   .pdf-page-content {
     padding: 1.5rem;
   }

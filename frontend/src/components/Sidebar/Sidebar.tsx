@@ -14,7 +14,7 @@ interface Conversation {
 interface SidebarProps {
   activeConversationId: string | null;
   onConversationSelect: (id: string) => void;
-  onPdfSelect: (pdfUrl: string | null) => void;
+  onPdfSelect: (pdfUrl: string | null, pdfId?: string | null) => void;
 }
 
 interface ConversationPDF {
@@ -52,17 +52,19 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
 
   // 載入數據
   useEffect(() => {
-    loadFolders();
-    loadConversations();
-    loadAllPdfs();
+    const initializeData = async () => {
+      await loadFolders();
+      await loadAllPdfs();
+    };
+    initializeData();
   }, []);
 
   // 當選中文件夾改變時，重新載入對話列表
   useEffect(() => {
-    if (folders.length > 0) {
+    if (selectedFolderId !== null) {
       loadConversations();
     }
-  }, [selectedFolderId, folders]);
+  }, [selectedFolderId]);
 
   // 當選中對話改變時，載入該對話的 PDF
   useEffect(() => {
@@ -82,7 +84,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
 
       // 默認選中"未分類"文件夾，如果存在的話
       const uncategorizedFolder = folderList.find(f => f.name === '未分類');
-      if (uncategorizedFolder && !selectedFolderId) {
+      if (uncategorizedFolder) {
         setSelectedFolderId(uncategorizedFolder.id);
       }
     } catch (error) {
@@ -139,10 +141,10 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
       if (pdfs.length > 0) {
         const firstPdf = pdfs[0];
         const pdfUrl = pdfApi.getPDFContentUrl(firstPdf.id);
-        onPdfSelect(pdfUrl);
+        onPdfSelect(pdfUrl, firstPdf.id);
       } else {
         // 如果沒有PDF，清空PDF顯示
-        onPdfSelect(null);
+        onPdfSelect(null, null);
       }
     } catch (error) {
       console.error('Failed to load conversation PDFs:', error);
@@ -685,7 +687,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeConversationId, onConversationS
                 className="pdf-item"
                 onClick={() => {
                   const pdfUrl = pdfApi.getPDFContentUrl(pdf.id);
-                  onPdfSelect(pdfUrl);
+                  onPdfSelect(pdfUrl, pdf.id);
                 }}
               >
                 <div className="pdf-icon">📄</div>

@@ -8,6 +8,7 @@ import Settings from './components/Settings/Settings';
 function App() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activePdfUrl, setActivePdfUrl] = useState<string | null>(null);
+  const [activePdfId, setActivePdfId] = useState<string | null>(null);
   const [externalText, setExternalText] = useState<string>('');
   const [externalImages, setExternalImages] = useState<string[]>([]);
 
@@ -97,10 +98,13 @@ function App() {
         {/* 三欄式佈局 */}
         <div className={`sidebar-container ${sidebarCollapsed ? 'collapsed' : ''}`} style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}>
           {!sidebarCollapsed && (
-            <Sidebar 
+            <Sidebar
               activeConversationId={activeConversationId}
               onConversationSelect={setActiveConversationId}
-              onPdfSelect={setActivePdfUrl}
+              onPdfSelect={(url, id) => {
+                setActivePdfUrl(url);
+                setActivePdfId(id || null);
+              }}
             />
           )}
         </div>
@@ -118,12 +122,13 @@ function App() {
         )}
         
         <div className="pdf-viewer-container">
-          <PDFViewer 
-            pdfUrl={activePdfUrl} 
+          <PDFViewer
+            pdfUrl={activePdfUrl}
+            pdfId={activePdfId}
+            conversationId={activeConversationId}
             onTextSelect={handleTextOrImageSelect}
           />
-        </div>
-        
+        </div>        
         <div className="resizer" onMouseDown={(e) => handleResize(e, 'pdf')}></div>
         
         <div className="chat-panel-container" style={{ width: chatWidth }}>
