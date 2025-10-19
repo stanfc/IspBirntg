@@ -85,13 +85,8 @@ function App() {
 
   return (
     <div className="app">
-      {/* 頂部導航列 */}
-      <header className="app-header">
-        <h1>IspBirntg - Offline LLM based PDF reader</h1>
-        <div className="header-controls">
-          <button className="settings-btn" onClick={() => setShowSettings(true)}>設定</button>
-        </div>
-      </header>
+      {/* 設定按鈕 - 浮動在右上角 */}
+      <button className="floating-settings-btn" onClick={() => setShowSettings(true)} title="設定">⚙️</button>
 
       {/* 主要內容區域 */}
       <main className="app-main">
@@ -143,11 +138,6 @@ function App() {
         </div>
       </main>
 
-      {/* 狀態列 */}
-      <footer className="app-footer">
-        <span className="status">就緒</span>
-        <span className="api-status">API: 已連接</span>
-      </footer>
       
       <Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>

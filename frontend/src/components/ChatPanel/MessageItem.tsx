@@ -41,7 +41,9 @@ const MessageItem = memo<MessageItemProps>(({
 
   return (
     <div className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}>
-      <div className="message-avatar">{message.role === 'user' ? '👤' : '🤖'}</div>
+      <div className="message-avatar">
+        {message.role === 'user' ? <img src="/Student.png" alt="User" className="avatar-image" /> : <img src="/Teacher.png" alt="AI Assistant" className="avatar-image" />}
+      </div>
       <div className="message-content">
         {message.images && message.images.length > 0 && (
           <div className="message-images">
