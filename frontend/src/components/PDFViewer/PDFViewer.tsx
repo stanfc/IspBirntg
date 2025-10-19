@@ -540,6 +540,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
       return;
     }
 
+    // 如果是高亮，不做任何操作（让事件穿透，允许文字选取和右键菜单）
+    if (annotation?.annotation_type === 'highlight') {
+      return;
+    }
+
     // 其他類型的注釋，直接拖動
     e.preventDefault();
     e.stopPropagation();
@@ -1058,19 +1063,40 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                                  'rgba(255, 255, 0, 0.4)')
                               : 'transparent',
                             border: isTextBox
-                              ? (isEditing ? '2px solid #2980b9' : '2px solid #3498db')
+                              ? (isEditing ? '2px solid rgba(41, 128, 185, 0)' : '2px solid rgba(52, 152, 219, 0)')
                               : 'none',
-                            pointerEvents: 'auto',
-                            cursor: annotationMode === 'none' ? (isEditing ? 'default' : 'move') : 'pointer',
+                            backgroundColor: isTextBox ? 'transparent' : (annotation.annotation_type === 'highlight'
+                              ? (annotation.color === 'yellow' ? 'rgba(255, 255, 0, 0.4)' :
+                                 annotation.color === 'green' ? 'rgba(0, 255, 0, 0.4)' :
+                                 annotation.color === 'blue' ? 'rgba(0, 191, 255, 0.4)' :
+                                 annotation.color === 'pink' ? 'rgba(255, 192, 203, 0.5)' :
+                                 'rgba(255, 255, 0, 0.4)')
+                              : 'transparent'),
+                            pointerEvents: (isTextBox || annotationMode === 'highlight') ? 'auto' : 'none',
+                            cursor: annotationMode === 'none'
+                              ? (isTextBox
+                                  ? (isEditing ? 'default' : 'grab')
+                                  : 'not-allowed')
+                              : 'pointer',
                             zIndex: isEditing ? 20 : 10,
                           }}
                           title={isTextBox ? annotation.text_content : '拖移或右键删除'}
                           onMouseDown={(e) => handleAnnotationMouseDown(e, annotation.id)}
                           onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (window.confirm('确定要删除这个注释吗？')) {
-                              deleteAnnotation(annotation.id);
+                            // 只在高亮模式下允许删除高亮
+                            if (isTextBox) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (window.confirm('确定要删除这个注释吗？')) {
+                                deleteAnnotation(annotation.id);
+                              }
+                            } else if (annotationMode === 'highlight') {
+                              // 高亮注释只在高亮模式下可删除
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (window.confirm('确定要删除这个注释吗？')) {
+                                deleteAnnotation(annotation.id);
+                              }
                             }
                           }}
                           onClick={(e) => {
@@ -1132,7 +1158,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                                     border: 'none',
                                     outline: 'none',
                                     resize: 'none',
-                                    backgroundColor: 'rgba(236, 240, 241, 0.95)',
+                                    backgroundColor: 'rgba(173, 216, 230, 0.3)',
                                     color: '#2c3e50',
                                     fontFamily: 'inherit',
                                     lineHeight: '1.4',
@@ -1145,7 +1171,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                                   padding: '4px',
                                   fontSize: '12px',
                                   color: '#2c3e50',
-                                  backgroundColor: '#ecf0f1',
+                                  backgroundColor: 'rgba(173, 216, 230, 0.2)',
                                   borderRadius: '2px',
                                   overflow: 'auto',
                                   width: '100%',
@@ -1182,11 +1208,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                                     top: '-4px',
                                     width: '8px',
                                     height: '8px',
-                                    backgroundColor: isEditing ? '#2980b9' : '#95a5a6',
-                                    border: '1px solid white',
+                                    backgroundColor: isEditing ? '#2980b9' : 'rgba(149, 165, 166, 0)',
+                                    border: isEditing ? '1px solid white' : 'none',
                                     cursor: 'nw-resize',
                                     zIndex: 30,
-                                    opacity: isEditing ? 1 : 0.5,
+                                    opacity: isEditing ? 1 : 0,
                                   }}
                                 />
                                 <div
@@ -1197,11 +1223,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                                     top: '-4px',
                                     width: '8px',
                                     height: '8px',
-                                    backgroundColor: isEditing ? '#2980b9' : '#95a5a6',
-                                    border: '1px solid white',
+                                    backgroundColor: isEditing ? '#2980b9' : 'rgba(149, 165, 166, 0)',
+                                    border: isEditing ? '1px solid white' : 'none',
                                     cursor: 'ne-resize',
                                     zIndex: 30,
-                                    opacity: isEditing ? 1 : 0.5,
+                                    opacity: isEditing ? 1 : 0,
                                   }}
                                 />
                                 <div
@@ -1212,11 +1238,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                                     bottom: '-4px',
                                     width: '8px',
                                     height: '8px',
-                                    backgroundColor: isEditing ? '#2980b9' : '#95a5a6',
-                                    border: '1px solid white',
+                                    backgroundColor: isEditing ? '#2980b9' : 'rgba(149, 165, 166, 0)',
+                                    border: isEditing ? '1px solid white' : 'none',
                                     cursor: 'sw-resize',
                                     zIndex: 30,
-                                    opacity: isEditing ? 1 : 0.5,
+                                    opacity: isEditing ? 1 : 0,
                                   }}
                                 />
                                 <div
@@ -1227,11 +1253,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                                     bottom: '-4px',
                                     width: '8px',
                                     height: '8px',
-                                    backgroundColor: isEditing ? '#2980b9' : '#95a5a6',
-                                    border: '1px solid white',
+                                    backgroundColor: isEditing ? '#2980b9' : 'rgba(149, 165, 166, 0)',
+                                    border: isEditing ? '1px solid white' : 'none',
                                     cursor: 'se-resize',
                                     zIndex: 30,
-                                    opacity: isEditing ? 1 : 0.5,
+                                    opacity: isEditing ? 1 : 0,
                                   }}
                                 />
                               </>

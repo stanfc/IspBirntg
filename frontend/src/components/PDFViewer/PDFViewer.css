@@ -546,6 +546,7 @@
 .pdf-annotation.highlight {
   mix-blend-mode: multiply;
   opacity: 0.5;
+  pointer-events: auto;
 }
 
 .pdf-annotation.highlight:hover {
@@ -564,7 +565,7 @@
 
 /* Markdown 內容樣式 */
 .markdown-content {
-  font-size: 10px;
+  font-size: 7px;
 }
 
 .markdown-content h1,
@@ -648,7 +649,7 @@
 
 /* KaTeX 公式樣式 */
 .markdown-content .katex {
-  font-size: 0.7em;
+  font-size: 1em;
   margin: 0 0.1em;
 }
 

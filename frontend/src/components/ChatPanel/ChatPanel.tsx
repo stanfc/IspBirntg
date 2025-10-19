@@ -343,7 +343,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
   return (
     <div className="chat-panel">
       <div className="chat-header">
-        <h3>AI 助手</h3>
+        <h3>AI 小精靈</h3>
         <div className="chat-status"><span className="status-indicator online"></span><span>線上</span></div>
       </div>
       <div ref={messagesContainerRef} className="messages-container">
