@@ -263,6 +263,25 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
     setScreenshotPreview(null);
   };
 
+  const handleCopyScreenshot = async () => {
+    if (screenshotPreview && screenshotPreview.data) {
+      try {
+        // 將 base64 轉換為 blob
+        const response = await fetch(screenshotPreview.data);
+        const blob = await response.blob();
+
+        // 使用 Clipboard API 複製圖片
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            [blob.type]: blob,
+          }),
+        ]);
+      } catch (error) {
+        console.error('Copy to clipboard failed:', error);
+      }
+    }
+  };
+
   // 监听缩放变化，保存阅读状态
   useEffect(() => {
     saveReadingState();
@@ -1366,13 +1385,20 @@ const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUrl, pdfId, conversationId, on
                 </div>
               )}
               <div className="screenshot-actions">
-                <button 
+                <button
                   className="screenshot-btn confirm"
                   onClick={handleAddScreenshot}
                 >
                   加入對話
                 </button>
-                <button 
+                <button
+                  className="screenshot-btn confirm"
+                  onClick={handleCopyScreenshot}
+                  style={{ backgroundColor: '#9b59b6' }}
+                >
+                  複製到剪貼版
+                </button>
+                <button
                   className="screenshot-btn cancel"
                   onClick={handleCancelScreenshot}
                 >
