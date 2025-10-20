@@ -361,7 +361,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ conversationId, externalText, ext
         ))}
         {isThinking && (
           <div className="message assistant-message">
-            <div className="message-avatar">🤖</div>
+            <div className="message-avatar"><img src="/Teacher.png" alt="AI Assistant" className="avatar-image" /></div>
             <div className="message-content">
               <div className="typing-indicator"><span></span><span></span><span></span></div>
             </div>
